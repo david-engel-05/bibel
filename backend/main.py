@@ -1,8 +1,9 @@
 import os
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 from supabase import Client
 import ollama
 from dotenv import load_dotenv
@@ -12,6 +13,7 @@ load_dotenv()
 
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
 CHAT_MODEL = os.environ.get("CHAT_MODEL", "gemma4:26b")
+CORS_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",")]
 
 
 class AskRequest(BaseModel):
@@ -21,9 +23,22 @@ class AskRequest(BaseModel):
 
 app = FastAPI()
 
+
+def _require_session(session_id: str, db: Client) -> None:
+    """Raises 404 if session_id does not exist in chat_sessions."""
+    result = (
+        db.table("chat_sessions")
+        .select("id")
+        .eq("id", session_id)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Session nicht gefunden")
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -37,6 +52,7 @@ def create_session(db: Client = Depends(get_supabase)):
 
 @app.get("/history/{session_id}")
 def get_history(session_id: str, db: Client = Depends(get_supabase)):
+    _require_session(session_id, db)
     result = (
         db.table("chat_messages")
         .select("role, content, created_at")
@@ -49,8 +65,29 @@ def get_history(session_id: str, db: Client = Depends(get_supabase)):
 
 @app.post("/ask")
 def ask(req: AskRequest, db: Client = Depends(get_supabase)):
+    _require_session(req.session_id, db)
+
+    # 0. Gesprächsverlauf laden (vor dem Speichern der neuen Frage)
+    history_result = (
+        db.table("chat_messages")
+        .select("role, content")
+        .eq("session_id", req.session_id)
+        .order("created_at")
+        .execute()
+    )
+    history = [
+        {"role": m["role"], "content": m["content"]}
+        for m in history_result.data
+    ]
+
     # 1. Frage einbetten
-    embed_result = ollama.embed(model=EMBED_MODEL, input=req.question)
+    try:
+        embed_result = ollama.embed(model=EMBED_MODEL, input=req.question)
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Ollama nicht erreichbar: {e}",
+        )
     question_embedding = embed_result.embeddings[0]
 
     # 2. Top-5 semantisch ähnliche Verse aus Supabase laden
@@ -68,7 +105,7 @@ def ask(req: AskRequest, db: Client = Depends(get_supabase)):
         {"session_id": req.session_id, "role": "user", "content": req.question}
     ).execute()
 
-    # 4. Stream generieren und Antwort anschließend persistieren
+    # 4. Stream generieren; Antwort via BackgroundTask persistieren
     full_response: list[str] = []
 
     def generate():
@@ -85,6 +122,7 @@ def ask(req: AskRequest, db: Client = Depends(get_supabase)):
                         f"Relevante Bibelstellen:\n{context}"
                     ),
                 },
+                *history,
                 {"role": "user", "content": req.question},
             ],
             stream=True,
@@ -93,7 +131,9 @@ def ask(req: AskRequest, db: Client = Depends(get_supabase)):
             if token:
                 full_response.append(token)
                 yield f"data: {token}\n\n"
+        yield "data: [DONE]\n\n"
 
+    def save_assistant_message():
         db.table("chat_messages").insert(
             {
                 "session_id": req.session_id,
@@ -101,9 +141,12 @@ def ask(req: AskRequest, db: Client = Depends(get_supabase)):
                 "content": "".join(full_response),
             }
         ).execute()
-        yield "data: [DONE]\n\n"
 
-    return StreamingResponse(generate(), media_type="text/event-stream")
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        background=BackgroundTask(save_assistant_message),
+    )
 
 
 if __name__ == "__main__":
