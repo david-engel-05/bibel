@@ -182,3 +182,50 @@ def test_ask_saves_assistant_message_via_background(mocker):
     # insert must have been called twice: once for user, once for assistant
     assert insert_mock.call_count == 2
     app.dependency_overrides.clear()
+
+
+def test_get_history_returns_404_for_unknown_session():
+    mock_db = make_mock_db()
+    mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[]
+    )
+
+    import os
+    os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
+    os.environ.setdefault("SUPABASE_KEY", "test-key")
+
+    from main import app, get_supabase
+    app.dependency_overrides[get_supabase] = lambda: mock_db
+    client = TestClient(app)
+
+    response = client.get("/history/00000000-0000-0000-0000-000000000000")
+
+    assert response.status_code == 404
+    app.dependency_overrides.clear()
+
+
+def test_ask_returns_404_for_unknown_session(mocker):
+    mock_db = make_mock_db()
+    # session lookup returns empty
+    mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[]
+    )
+
+    mock_embed = mocker.patch("main.ollama.embed")
+    mock_embed.return_value = MagicMock(embeddings=[[0.1] * 768])
+
+    import os
+    os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
+    os.environ.setdefault("SUPABASE_KEY", "test-key")
+
+    from main import app, get_supabase
+    app.dependency_overrides[get_supabase] = lambda: mock_db
+    client = TestClient(app)
+
+    response = client.post(
+        "/ask",
+        json={"question": "Test?", "session_id": "00000000-0000-0000-0000-000000000000"},
+    )
+
+    assert response.status_code == 404
+    app.dependency_overrides.clear()

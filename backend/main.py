@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -22,6 +22,19 @@ class AskRequest(BaseModel):
 
 app = FastAPI()
 
+
+def _require_session(session_id: str, db: Client) -> None:
+    """Raises 404 if session_id does not exist in chat_sessions."""
+    result = (
+        db.table("chat_sessions")
+        .select("id")
+        .eq("id", session_id)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Session nicht gefunden")
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
@@ -38,6 +51,7 @@ def create_session(db: Client = Depends(get_supabase)):
 
 @app.get("/history/{session_id}")
 def get_history(session_id: str, db: Client = Depends(get_supabase)):
+    _require_session(session_id, db)
     result = (
         db.table("chat_messages")
         .select("role, content, created_at")
@@ -50,6 +64,8 @@ def get_history(session_id: str, db: Client = Depends(get_supabase)):
 
 @app.post("/ask")
 def ask(req: AskRequest, db: Client = Depends(get_supabase)):
+    _require_session(req.session_id, db)
+
     # 1. Frage einbetten
     embed_result = ollama.embed(model=EMBED_MODEL, input=req.question)
     question_embedding = embed_result.embeddings[0]
