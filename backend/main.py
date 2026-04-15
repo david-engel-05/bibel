@@ -13,7 +13,7 @@ load_dotenv()
 
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
 CHAT_MODEL = os.environ.get("CHAT_MODEL", "gemma4:26b")
-CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",")
+CORS_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",")]
 
 
 class AskRequest(BaseModel):
