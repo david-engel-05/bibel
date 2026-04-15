@@ -16,6 +16,7 @@ CHAT_MODEL = os.environ.get("CHAT_MODEL", "gemma4:26b")
 CORS_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",")]
 SUMMARY_THRESHOLD = int(os.environ.get("SUMMARY_THRESHOLD", "10"))
 SUMMARY_FRESH_WINDOW = int(os.environ.get("SUMMARY_FRESH_WINDOW", "6"))
+SUMMARY_BATCH_SIZE = int(os.environ.get("SUMMARY_BATCH_SIZE", "4"))
 SUMMARY_SYSTEM_PROMPT = (
     "Du fasst ein Bibelgespräch zusammen. Erstelle eine strukturierte, "
     "deutschsprachige Zusammenfassung, die folgendes festhält:\n"
@@ -35,10 +36,10 @@ app = FastAPI()
 
 
 def _get_session(session_id: str, db: Client) -> dict:
-    """Returns session row (id, summary) or raises 404."""
+    """Returns session row (id, summary, summary_upto_count) or raises 404."""
     result = (
         db.table("chat_sessions")
-        .select("id, summary")
+        .select("id, summary, summary_upto_count")
         .eq("id", session_id)
         .execute()
     )
@@ -50,12 +51,13 @@ def _get_session(session_id: str, db: Client) -> dict:
 def _assemble_history(
     all_history: list[dict],
     summary: str | None,
-    fresh_window: int,
+    summary_upto_count: int,
 ) -> list[dict]:
     """
     Returns the message list to pass to Ollama.
-    If summary is set, prepends it as a system message and returns only
-    the last `fresh_window` raw messages.  Otherwise returns full history.
+    If summary is set, prepends it as a system message and appends all messages
+    after the summarized portion (all_history[summary_upto_count:]) — no gap.
+    Otherwise returns the full history unchanged.
     """
     if summary:
         return [
@@ -63,7 +65,7 @@ def _assemble_history(
                 "role": "system",
                 "content": f"Zusammenfassung des bisherigen Gesprächs:\n{summary}",
             },
-            *all_history[-fresh_window:],
+            *all_history[summary_upto_count:],
         ]
     return all_history
 
@@ -73,11 +75,18 @@ def _maybe_summarize(
     db: Client,
     threshold: int,
     fresh_window: int,
+    batch_size: int,
+    current_upto_count: int,
 ) -> None:
     """
-    Called inside BackgroundTask. Fetches all messages for the session.
-    If count > threshold, summarizes all-except-last-fresh_window using Ollama
-    and upserts the result into chat_sessions.summary.
+    Called inside BackgroundTask. Only runs a new summarization when at least
+    `batch_size` messages have accumulated beyond the last summary boundary.
+    This prevents re-summarizing on every single request.
+
+    Logic:
+      msgs_to_cover = total_messages - fresh_window
+      Only summarize if msgs_to_cover >= current_upto_count + batch_size
+
     All exceptions are silently swallowed — summary is best-effort.
     """
     try:
@@ -91,7 +100,10 @@ def _maybe_summarize(
         msgs = msgs_result.data
         if len(msgs) <= threshold:
             return
-        to_summarize = msgs[:-fresh_window]
+        msgs_to_cover = len(msgs) - fresh_window
+        if msgs_to_cover < current_upto_count + batch_size:
+            return  # not enough new messages to justify a re-summarization
+        to_summarize = msgs[:msgs_to_cover]
         summary_response = ollama.chat(
             model=CHAT_MODEL,
             messages=[
@@ -101,9 +113,9 @@ def _maybe_summarize(
             stream=False,
         )
         summary_text = summary_response.message.content
-        db.table("chat_sessions").update({"summary": summary_text}).eq(
-            "id", session_id
-        ).execute()
+        db.table("chat_sessions").update(
+            {"summary": summary_text, "summary_upto_count": msgs_to_cover}
+        ).eq("id", session_id).execute()
     except Exception:
         pass
 
@@ -139,6 +151,7 @@ def get_history(session_id: str, db: Client = Depends(get_supabase)):
 def ask(req: AskRequest, db: Client = Depends(get_supabase)):
     session = _get_session(req.session_id, db)
     current_summary = session.get("summary")
+    summary_upto_count = session.get("summary_upto_count") or 0
 
     # 0. Gesprächsverlauf laden
     history_result = (
@@ -152,7 +165,7 @@ def ask(req: AskRequest, db: Client = Depends(get_supabase)):
         {"role": m["role"], "content": m["content"]}
         for m in history_result.data
     ]
-    history_for_ollama = _assemble_history(all_history, current_summary, SUMMARY_FRESH_WINDOW)
+    history_for_ollama = _assemble_history(all_history, current_summary, summary_upto_count)
 
     # 1. Frage einbetten
     try:
@@ -215,7 +228,7 @@ def ask(req: AskRequest, db: Client = Depends(get_supabase)):
                 "content": "".join(full_response),
             }
         ).execute()
-        _maybe_summarize(req.session_id, db, SUMMARY_THRESHOLD, SUMMARY_FRESH_WINDOW)
+        _maybe_summarize(req.session_id, db, SUMMARY_THRESHOLD, SUMMARY_FRESH_WINDOW, SUMMARY_BATCH_SIZE, summary_upto_count)
 
     return StreamingResponse(
         generate(),

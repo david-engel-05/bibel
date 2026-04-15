@@ -331,30 +331,30 @@ def test_assemble_history_no_summary_returns_full_history():
         {"role": "user", "content": "Frage 2"},
         {"role": "assistant", "content": "Antwort 2"},
     ]
-    result = _assemble_history(history, summary=None, fresh_window=6)
+    result = _assemble_history(history, summary=None, summary_upto_count=0)
     assert result == history
 
 
 def test_assemble_history_with_summary_injects_system_message():
     from main import _assemble_history
     history = [{"role": "user", "content": f"Nachricht {i}"} for i in range(10)]
-    result = _assemble_history(history, summary="Test Zusammenfassung", fresh_window=6)
+    result = _assemble_history(history, summary="Test Zusammenfassung", summary_upto_count=4)
     assert result[0]["role"] == "system"
     assert "Test Zusammenfassung" in result[0]["content"]
 
 
-def test_assemble_history_with_summary_keeps_only_fresh_window():
+def test_assemble_history_with_summary_uses_upto_count_slice():
     from main import _assemble_history
     history = [{"role": "user", "content": f"msg {i}"} for i in range(10)]
-    result = _assemble_history(history, summary="Zusammenfassung", fresh_window=6)
-    # 1 summary system message + 6 fresh messages
-    assert len(result) == 7
-    assert result[1:] == history[-6:]
+    # summary covers msgs 0-3; fresh = history[4:] = 6 msgs, no gap
+    result = _assemble_history(history, summary="Zusammenfassung", summary_upto_count=4)
+    assert len(result) == 7  # 1 summary system msg + 6 fresh
+    assert result[1:] == history[4:]
 
 
 def test_assemble_history_empty_history_with_summary():
     from main import _assemble_history
-    result = _assemble_history([], summary="Zusammenfassung", fresh_window=6)
+    result = _assemble_history([], summary="Zusammenfassung", summary_upto_count=0)
     assert len(result) == 1
     assert result[0]["role"] == "system"
     assert "Zusammenfassung" in result[0]["content"]
@@ -369,7 +369,20 @@ def test_maybe_summarize_not_triggered_at_or_below_threshold(mocker):
         data=[{"role": "user", "content": "msg"}] * 10
     )
     mock_chat = mocker.patch("main.ollama.chat")
-    _maybe_summarize("session-1", mock_db, threshold=10, fresh_window=6)
+    _maybe_summarize("session-1", mock_db, threshold=10, fresh_window=6, batch_size=4, current_upto_count=0)
+    mock_chat.assert_not_called()
+
+
+def test_maybe_summarize_not_triggered_below_batch_size(mocker):
+    """With 11 msgs and upto_count=5, msgs_to_cover=5 < 5+4=9 → skip."""
+    from main import _maybe_summarize
+    mock_db = MagicMock()
+    msgs = [{"role": "user", "content": f"msg {i}"} for i in range(11)]
+    mock_db.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(
+        data=msgs
+    )
+    mock_chat = mocker.patch("main.ollama.chat")
+    _maybe_summarize("session-1", mock_db, threshold=10, fresh_window=6, batch_size=4, current_upto_count=5)
     mock_chat.assert_not_called()
 
 
@@ -383,16 +396,15 @@ def test_maybe_summarize_triggered_above_threshold(mocker):
     mock_chat = mocker.patch("main.ollama.chat")
     mock_chat.return_value = MagicMock(message=MagicMock(content="Zusammenfassung Text"))
 
-    _maybe_summarize("session-1", mock_db, threshold=10, fresh_window=6)
+    # upto_count=0, batch_size=4 → msgs_to_cover=5 >= 0+4 → trigger
+    _maybe_summarize("session-1", mock_db, threshold=10, fresh_window=6, batch_size=4, current_upto_count=0)
 
     mock_chat.assert_called_once()
     call_kwargs = mock_chat.call_args[1]
-    # First message must be the summary system prompt
     assert call_kwargs["messages"][0]["role"] == "system"
-    # 11 total - 6 fresh = 5 messages to summarize
+    # msgs[:5] = 5 messages to summarize
     summarized = call_kwargs["messages"][1:]
     assert len(summarized) == 5
-    # stream must be False
     assert call_kwargs.get("stream") is False
 
 
@@ -406,10 +418,11 @@ def test_maybe_summarize_saves_correct_summary_text(mocker):
     mock_chat = mocker.patch("main.ollama.chat")
     mock_chat.return_value = MagicMock(message=MagicMock(content="Meine Zusammenfassung"))
 
-    _maybe_summarize("session-1", mock_db, threshold=10, fresh_window=6)
+    _maybe_summarize("session-1", mock_db, threshold=10, fresh_window=6, batch_size=4, current_upto_count=0)
 
     update_call = mock_db.table.return_value.update.call_args
-    assert update_call[0][0] == {"summary": "Meine Zusammenfassung"}
+    # Must save both summary text and upto_count (11-6=5)
+    assert update_call[0][0] == {"summary": "Meine Zusammenfassung", "summary_upto_count": 5}
 
 
 def test_maybe_summarize_silently_ignores_ollama_failure(mocker):
@@ -422,7 +435,7 @@ def test_maybe_summarize_silently_ignores_ollama_failure(mocker):
     mocker.patch("main.ollama.chat", side_effect=Exception("Ollama unavailable"))
 
     # Must not raise
-    _maybe_summarize("session-1", mock_db, threshold=10, fresh_window=6)
+    _maybe_summarize("session-1", mock_db, threshold=10, fresh_window=6, batch_size=4, current_upto_count=0)
 
 
 # --- /ask integration: context assembly ---
@@ -431,7 +444,7 @@ def test_ask_uses_full_history_when_no_summary(mocker):
     """When session has no summary, all history messages are passed to ollama.chat."""
     mock_db = make_mock_db()
     mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
-        data=[{"id": "test-session", "summary": None}]
+        data=[{"id": "test-session", "summary": None, "summary_upto_count": 0}]
     )
     mock_db.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(
         data=[
@@ -469,7 +482,7 @@ def test_ask_uses_summary_and_recent_window_when_summary_exists(mocker):
     """When session has a summary, ollama.chat receives the summary system msg + last 6 messages."""
     mock_db = make_mock_db()
     mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
-        data=[{"id": "test-session", "summary": "Bisherige Zusammenfassung über Johannes 3:16"}]
+        data=[{"id": "test-session", "summary": "Bisherige Zusammenfassung über Johannes 3:16", "summary_upto_count": 4}]
     )
     # 10 history messages — only last 6 should reach Ollama raw
     history_msgs = [
