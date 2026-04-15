@@ -7,7 +7,7 @@ type Message = {
   content: string;
 };
 
-const API = "http://localhost:8000";
+const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -56,33 +56,50 @@ export default function Home() {
     setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
     setStreaming(true);
 
-    const res = await fetch(`${API}/ask`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, session_id: sessionId }),
-    });
+    try {
+      const res = await fetch(`${API}/ask`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question, session_id: sessionId }),
+      });
 
-    const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
-
-    outer: while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const chunk = decoder.decode(value);
-      for (const line of chunk.split("\n")) {
-        if (!line.startsWith("data: ")) continue;
-        const token = line.slice(6);
-        if (token === "[DONE]") break outer;
-        setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          return [
-            ...prev.slice(0, -1),
-            { ...last, content: last.content + token },
-          ];
-        });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        setMessages((prev) => [
+          ...prev.slice(0, -1),
+          { role: "assistant", content: `Fehler: ${err.detail ?? "Unbekannter Fehler"}` },
+        ]);
+        return;
       }
+
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+
+      outer: while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value);
+        for (const line of chunk.split("\n")) {
+          if (!line.startsWith("data: ")) continue;
+          const token = line.slice(6);
+          if (token === "[DONE]") break outer;
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            return [
+              ...prev.slice(0, -1),
+              { ...last, content: last.content + token },
+            ];
+          });
+        }
+      }
+    } catch (e) {
+      setMessages((prev) => [
+        ...prev.slice(0, -1),
+        { role: "assistant", content: "Verbindungsfehler: Backend nicht erreichbar." },
+      ]);
+    } finally {
+      setStreaming(false);
     }
-    setStreaming(false);
   }
 
   return (
