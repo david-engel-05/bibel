@@ -111,14 +111,14 @@ export default function Home() {
             className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
           >
             <div
-              className={`max-w-2xl px-4 py-3 rounded-2xl ${
+              className={`max-w-2xl px-5 py-4 rounded-2xl ${
                 msg.role === "user"
-                  ? "bg-blue-600 text-white"
+                  ? "bg-blue-600 text-white text-sm leading-relaxed"
                   : "bg-gray-800 text-gray-100"
               }`}
             >
               {msg.role === "assistant" ? (
-                <div className="prose prose-invert prose-sm max-w-none">
+                <div className="assistant-markdown">
                   <ReactMarkdown>
                     {msg.content ||
                       (streaming && i === messages.length - 1 ? "▋" : "")}

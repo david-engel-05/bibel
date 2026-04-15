@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -8,6 +9,9 @@ from dotenv import load_dotenv
 from database import get_supabase
 
 load_dotenv()
+
+EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
+CHAT_MODEL = os.environ.get("CHAT_MODEL", "gemma4:26b")
 
 
 class AskRequest(BaseModel):
@@ -46,7 +50,7 @@ def get_history(session_id: str, db: Client = Depends(get_supabase)):
 @app.post("/ask")
 def ask(req: AskRequest, db: Client = Depends(get_supabase)):
     # 1. Frage einbetten
-    embed_result = ollama.embed(model="nomic-embed-text", input=req.question)
+    embed_result = ollama.embed(model=EMBED_MODEL, input=req.question)
     question_embedding = embed_result.embeddings[0]
 
     # 2. Top-5 semantisch ähnliche Verse aus Supabase laden
@@ -69,7 +73,7 @@ def ask(req: AskRequest, db: Client = Depends(get_supabase)):
 
     def generate():
         for chunk in ollama.chat(
-            model="gemma4:26b",
+            model=CHAT_MODEL,
             messages=[
                 {
                     "role": "system",
@@ -100,3 +104,8 @@ def ask(req: AskRequest, db: Client = Depends(get_supabase)):
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

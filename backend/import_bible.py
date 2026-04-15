@@ -5,6 +5,7 @@ Laufzeit: ~2-4h für ~31.000 Verse (lokal, Ollama nomic-embed-text).
 Ausführen: cd backend && source venv/bin/activate && python import_bible.py
 """
 import json
+import os
 import sys
 from dotenv import load_dotenv
 from tqdm import tqdm
@@ -12,6 +13,8 @@ import ollama
 from database import get_supabase
 
 load_dotenv()
+
+EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
 
 BATCH_SIZE = 50
 
@@ -33,13 +36,16 @@ def load_verses(path: str) -> list[dict]:
 
 
 def embed(text: str) -> list[float]:
-    result = ollama.embed(model="nomic-embed-text", input=text)
-    return result.embeddings[0]
+    for attempt in range(3):
+        result = ollama.embed(model=EMBED_MODEL, input=text)
+        if result.embeddings:
+            return result.embeddings[0]
+    raise RuntimeError(f"Kein Embedding erhalten nach 3 Versuchen für: {text[:80]}")
 
 
 def main():
     # Sicherstellen dass nomic-embed-text vorhanden ist
-    print("Prüfe nomic-embed-text Modell...")
+    print(f"Prüfe {EMBED_MODEL} Modell...")
     try:
         embed("test")
     except Exception as e:
@@ -51,10 +57,17 @@ def main():
     verses = load_verses("bible.json")
     print(f"{len(verses)} Verse geladen")
 
-    for i in tqdm(range(0, len(verses), BATCH_SIZE), desc="Importiere"):
+    already = db.table("bible_verses").select("id", count="exact").execute().count or 0
+    skip = (already // BATCH_SIZE) * BATCH_SIZE
+    if skip:
+        print(f"{already} Verse bereits importiert, starte bei Vers {skip + 1}")
+
+    for i in tqdm(range(skip, len(verses), BATCH_SIZE), desc="Importiere"):
         batch = verses[i : i + BATCH_SIZE]
         rows = []
         for v in batch:
+            if not v["text"].strip():
+                continue
             rows.append({
                 "book": v["book"],
                 "chapter": v["chapter"],
