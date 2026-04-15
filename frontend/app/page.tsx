@@ -41,8 +41,13 @@ export default function Home() {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [showSessionInput, setShowSessionInput] = useState(false);
+  const [sessionInput, setSessionInput] = useState("");
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const [copySuccess, setCopySuccess] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const sessionInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { initSession(); }, []);
 
@@ -84,6 +89,35 @@ export default function Home() {
     setSessionId(id);
     setMessages([]);
     setTimeout(() => inputRef.current?.focus(), 50);
+  }
+
+  async function copySessionId() {
+    if (!sessionId) return;
+    await navigator.clipboard.writeText(sessionId);
+    setCopySuccess(true);
+    setTimeout(() => setCopySuccess(false), 1500);
+  }
+
+  async function loadSession() {
+    const id = sessionInput.trim();
+    if (!id) return;
+    setSessionError(null);
+    try {
+      const res = await fetch(`${API}/history/${id}`);
+      if (!res.ok) {
+        setSessionError("Session nicht gefunden");
+        return;
+      }
+      const history: { role: "user" | "assistant"; content: string }[] =
+        await res.json();
+      localStorage.setItem("session_id", id);
+      setSessionId(id);
+      setMessages(history.map((m) => ({ role: m.role, content: m.content })));
+      setShowSessionInput(false);
+      setSessionInput("");
+    } catch {
+      setSessionError("Verbindungsfehler");
+    }
   }
 
   async function send() {
