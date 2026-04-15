@@ -82,6 +82,9 @@ def test_get_history_returns_messages():
 
 def test_get_history_empty_for_new_session():
     mock_db = make_mock_db()
+    mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[{"id": "neue-session-id"}]
+    )
     mock_db.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(
         data=[]
     )
@@ -105,6 +108,9 @@ def test_get_history_empty_for_new_session():
 
 def test_ask_streams_response(mocker):
     mock_db = make_mock_db()
+    mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[{"id": "test-session-id"}]
+    )
 
     # Verse-Suche gibt 2 Verse zurück
     mock_db.rpc.return_value.execute.return_value = MagicMock(
