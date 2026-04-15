@@ -137,9 +137,10 @@ def get_history(session_id: str, db: Client = Depends(get_supabase)):
 
 @app.post("/ask")
 def ask(req: AskRequest, db: Client = Depends(get_supabase)):
-    _get_session(req.session_id, db)
+    session = _get_session(req.session_id, db)
+    current_summary = session.get("summary")
 
-    # 0. Gesprächsverlauf laden (vor dem Speichern der neuen Frage)
+    # 0. Gesprächsverlauf laden
     history_result = (
         db.table("chat_messages")
         .select("role, content")
@@ -147,10 +148,11 @@ def ask(req: AskRequest, db: Client = Depends(get_supabase)):
         .order("created_at")
         .execute()
     )
-    history = [
+    all_history = [
         {"role": m["role"], "content": m["content"]}
         for m in history_result.data
     ]
+    history_for_ollama = _assemble_history(all_history, current_summary, SUMMARY_FRESH_WINDOW)
 
     # 1. Frage einbetten
     try:
@@ -177,7 +179,7 @@ def ask(req: AskRequest, db: Client = Depends(get_supabase)):
         {"session_id": req.session_id, "role": "user", "content": req.question}
     ).execute()
 
-    # 4. Stream generieren; Antwort via BackgroundTask persistieren
+    # 4. Stream generieren; Antwort + optionale Zusammenfassung via BackgroundTask
     full_response: list[str] = []
 
     def generate():
@@ -194,7 +196,7 @@ def ask(req: AskRequest, db: Client = Depends(get_supabase)):
                         f"Relevante Bibelstellen:\n{context}"
                     ),
                 },
-                *history,
+                *history_for_ollama,
                 {"role": "user", "content": req.question},
             ],
             stream=True,
@@ -205,7 +207,7 @@ def ask(req: AskRequest, db: Client = Depends(get_supabase)):
                 yield f"data: {token}\n\n"
         yield "data: [DONE]\n\n"
 
-    def save_assistant_message():
+    def save_and_maybe_summarize():
         db.table("chat_messages").insert(
             {
                 "session_id": req.session_id,
@@ -213,11 +215,12 @@ def ask(req: AskRequest, db: Client = Depends(get_supabase)):
                 "content": "".join(full_response),
             }
         ).execute()
+        _maybe_summarize(req.session_id, db, SUMMARY_THRESHOLD, SUMMARY_FRESH_WINDOW)
 
     return StreamingResponse(
         generate(),
         media_type="text/event-stream",
-        background=BackgroundTask(save_assistant_message),
+        background=BackgroundTask(save_and_maybe_summarize),
     )
 
 

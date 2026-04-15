@@ -423,3 +423,89 @@ def test_maybe_summarize_silently_ignores_ollama_failure(mocker):
 
     # Must not raise
     _maybe_summarize("session-1", mock_db, threshold=10, fresh_window=6)
+
+
+# --- /ask integration: context assembly ---
+
+def test_ask_uses_full_history_when_no_summary(mocker):
+    """When session has no summary, all history messages are passed to ollama.chat."""
+    mock_db = make_mock_db()
+    mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[{"id": "test-session", "summary": None}]
+    )
+    mock_db.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(
+        data=[
+            {"role": "user", "content": "Alte Frage"},
+            {"role": "assistant", "content": "Alte Antwort"},
+        ]
+    )
+    mock_db.rpc.return_value.execute.return_value = MagicMock(data=[])
+    mock_db.table.return_value.insert.return_value.execute.return_value = MagicMock(data=[])
+
+    mocker.patch("main.ollama.embed", return_value=MagicMock(embeddings=[[0.1] * 768]))
+    chat_mock = mocker.patch("main.ollama.chat", return_value=iter([
+        MagicMock(message=MagicMock(content="Antwort."))
+    ]))
+
+    import os
+    os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
+    os.environ.setdefault("SUPABASE_KEY", "test-key")
+
+    from main import app, get_supabase
+    app.dependency_overrides[get_supabase] = lambda: mock_db
+    client = TestClient(app)
+
+    client.post("/ask", json={"question": "Neue Frage", "session_id": "test-session"})
+
+    call_kwargs = chat_mock.call_args[1]
+    messages = call_kwargs["messages"]
+    contents = [m["content"] for m in messages]
+    assert "Alte Frage" in contents
+    assert "Alte Antwort" in contents
+    app.dependency_overrides.clear()
+
+
+def test_ask_uses_summary_and_recent_window_when_summary_exists(mocker):
+    """When session has a summary, ollama.chat receives the summary system msg + last 6 messages."""
+    mock_db = make_mock_db()
+    mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[{"id": "test-session", "summary": "Bisherige Zusammenfassung über Johannes 3:16"}]
+    )
+    # 10 history messages — only last 6 should reach Ollama raw
+    history_msgs = [
+        {"role": "user" if i % 2 == 0 else "assistant", "content": f"msg {i}"}
+        for i in range(10)
+    ]
+    mock_db.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(
+        data=history_msgs
+    )
+    mock_db.rpc.return_value.execute.return_value = MagicMock(data=[])
+    mock_db.table.return_value.insert.return_value.execute.return_value = MagicMock(data=[])
+
+    mocker.patch("main.ollama.embed", return_value=MagicMock(embeddings=[[0.1] * 768]))
+    chat_mock = mocker.patch("main.ollama.chat", return_value=iter([
+        MagicMock(message=MagicMock(content="Antwort."))
+    ]))
+
+    import os
+    os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
+    os.environ.setdefault("SUPABASE_KEY", "test-key")
+
+    from main import app, get_supabase
+    app.dependency_overrides[get_supabase] = lambda: mock_db
+    client = TestClient(app)
+
+    client.post("/ask", json={"question": "Frage", "session_id": "test-session"})
+
+    call_kwargs = chat_mock.call_args[1]
+    messages = call_kwargs["messages"]
+
+    # messages[0]: FastAPI system prompt (RAG context)
+    assert messages[0]["role"] == "system"
+    # messages[1]: summary injected by _assemble_history
+    assert messages[1]["role"] == "system"
+    assert "Bisherige Zusammenfassung" in messages[1]["content"]
+    # Only 6 raw history messages (not all 10), plus the new question at the end
+    # So total: 1 (system) + 1 (summary) + 6 (raw history) + 1 (new question) = 9
+    assert len(messages) == 9
+    app.dependency_overrides.clear()
