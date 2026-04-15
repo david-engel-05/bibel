@@ -4,6 +4,22 @@ from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
 
 
+def test_get_supabase_returns_singleton():
+    """get_supabase() must return the same client object on repeated calls."""
+    import os
+    os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
+    os.environ.setdefault("SUPABASE_KEY", "test-key")
+
+    # Reset the singleton between test runs
+    import database
+    database._client = None
+
+    from database import get_supabase
+    client_a = get_supabase()
+    client_b = get_supabase()
+    assert client_a is client_b
+
+
 def make_mock_db():
     """Hilfsfunktion: gibt einen vorkonfigurierten Supabase-Mock zurück."""
     db = MagicMock()
