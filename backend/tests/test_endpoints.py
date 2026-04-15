@@ -83,3 +83,52 @@ def test_get_history_empty_for_new_session():
     assert response.status_code == 200
     assert response.json() == []
     app.dependency_overrides.clear()
+
+
+# --- /ask ---
+
+def test_ask_streams_response(mocker):
+    mock_db = make_mock_db()
+
+    # Verse-Suche gibt 2 Verse zurück
+    mock_db.rpc.return_value.execute.return_value = MagicMock(
+        data=[
+            {"book": "Johannes", "chapter": 3, "verse": 16, "text": "Denn also hat Gott..."},
+            {"book": "Römer", "chapter": 8, "verse": 28, "text": "Wir wissen aber..."},
+        ]
+    )
+    # chat_messages.insert gibt keine relevante Antwort
+    mock_db.table.return_value.insert.return_value.execute.return_value = MagicMock(data=[])
+
+    # Ollama-Embedding mocken
+    mock_embed = mocker.patch("main.ollama.embed")
+    mock_embed.return_value = MagicMock(embeddings=[[0.1] * 768])
+
+    # Ollama-Chat-Stream mocken: liefert 3 Chunks
+    def fake_chat(**kwargs):
+        for token in ["Gott ", "liebt ", "dich."]:
+            yield MagicMock(message=MagicMock(content=token))
+
+    mocker.patch("main.ollama.chat", side_effect=fake_chat)
+
+    import os
+    os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
+    os.environ.setdefault("SUPABASE_KEY", "test-key")
+
+    from main import app, get_supabase
+    app.dependency_overrides[get_supabase] = lambda: mock_db
+    client = TestClient(app)
+
+    response = client.post(
+        "/ask",
+        json={"question": "Was bedeutet Liebe?", "session_id": "test-session-id"},
+    )
+
+    assert response.status_code == 200
+    assert "text/event-stream" in response.headers["content-type"]
+    body = response.text
+    assert "data: Gott " in body
+    assert "data: liebt " in body
+    assert "data: dich." in body
+    assert "data: [DONE]" in body
+    app.dependency_overrides.clear()
