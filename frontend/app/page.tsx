@@ -288,10 +288,11 @@ export default function Home() {
             <div className="flex items-center gap-1">
               <button
                 onClick={() => {
-                  setShowSessionInput((v) => !v);
+                  const willOpen = !showSessionInput;
+                  setShowSessionInput(willOpen);
                   setSessionError(null);
                   setSessionInput("");
-                  setTimeout(() => sessionInputRef.current?.focus(), 50);
+                  if (willOpen) setTimeout(() => sessionInputRef.current?.focus(), 50);
                 }}
                 title="Session laden"
                 className="flex items-center gap-1 transition-colors"
