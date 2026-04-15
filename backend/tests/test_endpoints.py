@@ -109,7 +109,7 @@ def test_get_history_empty_for_new_session():
 def test_ask_streams_response(mocker):
     mock_db = make_mock_db()
     mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
-        data=[{"id": "test-session-id"}]
+        data=[{"id": "test-session-id", "summary": None}]
     )
 
     # Verse-Suche gibt 2 Verse zurück
@@ -245,7 +245,7 @@ def test_ask_returns_503_when_ollama_unavailable(mocker):
     """If ollama.embed raises, /ask must return 503."""
     mock_db = make_mock_db()
     mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
-        data=[{"id": "test-session"}]
+        data=[{"id": "test-session", "summary": None}]
     )
 
     mocker.patch("main.ollama.embed", side_effect=Exception("Connection refused"))
@@ -274,7 +274,7 @@ def test_ask_includes_history_in_ollama_call(mocker):
 
     # Session exists
     mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
-        data=[{"id": "test-session"}]
+        data=[{"id": "test-session", "summary": None}]
     )
     # History: one prior exchange
     mock_db.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(
