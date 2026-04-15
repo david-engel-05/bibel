@@ -148,3 +148,37 @@ def test_ask_streams_response(mocker):
     assert "data: dich." in body
     assert "data: [DONE]" in body
     app.dependency_overrides.clear()
+
+
+def test_ask_saves_assistant_message_via_background(mocker):
+    """Assistant message must be saved even if we rely on background task."""
+    mock_db = make_mock_db()
+    mock_db.rpc.return_value.execute.return_value = MagicMock(data=[])
+    insert_mock = mock_db.table.return_value.insert.return_value.execute
+
+    mock_embed = mocker.patch("main.ollama.embed")
+    mock_embed.return_value = MagicMock(embeddings=[[0.1] * 768])
+
+    def fake_chat(**kwargs):
+        for token in ["Hallo "]:
+            yield MagicMock(message=MagicMock(content=token))
+
+    mocker.patch("main.ollama.chat", side_effect=fake_chat)
+
+    import os
+    os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
+    os.environ.setdefault("SUPABASE_KEY", "test-key")
+
+    from main import app, get_supabase
+    app.dependency_overrides[get_supabase] = lambda: mock_db
+    client = TestClient(app)
+
+    response = client.post(
+        "/ask",
+        json={"question": "Test?", "session_id": "123e4567-e89b-12d3-a456-426614174000"},
+    )
+
+    assert response.status_code == 200
+    # insert must have been called twice: once for user, once for assistant
+    assert insert_mock.call_count == 2
+    app.dependency_overrides.clear()

@@ -3,6 +3,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 from supabase import Client
 import ollama
 from dotenv import load_dotenv
@@ -68,7 +69,7 @@ def ask(req: AskRequest, db: Client = Depends(get_supabase)):
         {"session_id": req.session_id, "role": "user", "content": req.question}
     ).execute()
 
-    # 4. Stream generieren und Antwort anschließend persistieren
+    # 4. Stream generieren; Antwort via BackgroundTask persistieren
     full_response: list[str] = []
 
     def generate():
@@ -93,7 +94,9 @@ def ask(req: AskRequest, db: Client = Depends(get_supabase)):
             if token:
                 full_response.append(token)
                 yield f"data: {token}\n\n"
+        yield "data: [DONE]\n\n"
 
+    def save_assistant_message():
         db.table("chat_messages").insert(
             {
                 "session_id": req.session_id,
@@ -101,9 +104,12 @@ def ask(req: AskRequest, db: Client = Depends(get_supabase)):
                 "content": "".join(full_response),
             }
         ).execute()
-        yield "data: [DONE]\n\n"
 
-    return StreamingResponse(generate(), media_type="text/event-stream")
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        background=BackgroundTask(save_assistant_message),
+    )
 
 
 if __name__ == "__main__":
