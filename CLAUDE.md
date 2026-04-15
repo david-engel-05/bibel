@@ -8,16 +8,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Architecture
 
-Two separate apps that must both run simultaneously:
+Three components:
 
 ```
 backend/   FastAPI (Python) — localhost:8000
 frontend/  Next.js (TypeScript) — localhost:3000
+Supabase   pgvector (bible_verses) + chat_sessions + chat_messages
 ```
 
-**Request flow:** `frontend/app/page.tsx` → `POST http://localhost:8000/ask` → Ollama (`gemma4:26b`) → response rendered with `react-markdown`.
+**Request flow:** `page.tsx` → `POST /ask` (SSE) → FastAPI → Ollama `nomic-embed-text` (Embedding) → Supabase pgvector (Top-5 Verse) → Ollama `gemma4:26b` (Stream) → SSE-Tokens an Browser.
 
-The backend loads the entire `backend/bible.json` (~8.6 MB, German Bible) into memory on startup. The Ollama service must be running locally with the `gemma4:26b` model pulled.
+**One-time setup:** `backend/import_bible.py` fills `bible_verses` with embeddings (~31,000 verses, ~2-4h).
 
 ## Commands
 
@@ -50,6 +51,10 @@ The frontend uses **Next.js 16** which has breaking API changes from earlier ver
 | `backend/main.py` | Entire backend: FastAPI app, CORS, `/ask` endpoint, Ollama call, system prompt |
 | `frontend/app/page.tsx` | Entire UI: question input, fetch call, markdown answer display |
 | `frontend/app/layout.tsx` | Root layout with metadata and font |
+| `backend/database.py` | Supabase client factory (`get_supabase()`) |
+| `backend/import_bible.py` | One-time bible import script (Embeddings → Supabase) |
+| `backend/tests/test_endpoints.py` | pytest tests for all 3 endpoints |
+| `supabase/schema.sql` | DDL for all tables + `match_verses` RPC function |
 
 ## System Prompt (German)
 
