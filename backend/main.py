@@ -23,3 +23,15 @@ app.add_middleware(
 def create_session(db: Client = Depends(get_supabase)):
     result = db.table("chat_sessions").insert({}).execute()
     return {"session_id": result.data[0]["id"]}
+
+
+@app.get("/history/{session_id}")
+def get_history(session_id: str, db: Client = Depends(get_supabase)):
+    result = (
+        db.table("chat_messages")
+        .select("role, content, created_at")
+        .eq("session_id", session_id)
+        .order("created_at")
+        .execute()
+    )
+    return result.data
