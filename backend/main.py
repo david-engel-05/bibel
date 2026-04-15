@@ -14,6 +14,16 @@ load_dotenv()
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
 CHAT_MODEL = os.environ.get("CHAT_MODEL", "gemma4:26b")
 CORS_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",")]
+SUMMARY_THRESHOLD = int(os.environ.get("SUMMARY_THRESHOLD", "10"))
+SUMMARY_FRESH_WINDOW = int(os.environ.get("SUMMARY_FRESH_WINDOW", "6"))
+SUMMARY_SYSTEM_PROMPT = (
+    "Du fasst ein Bibelgespräch zusammen. Erstelle eine strukturierte, "
+    "deutschsprachige Zusammenfassung, die folgendes festhält:\n"
+    "- Diskutierte Bibelstellen und -themen (mit genauen Versen, z.B. Johannes 3:16)\n"
+    "- Wichtige Schlüsse und Erkenntnisse aus dem Gespräch\n"
+    "- Offene Fragen oder Themen, auf die man zurückkommen wollte\n"
+    "Halte die Zusammenfassung kompakt (maximal 300 Wörter)."
+)
 
 
 class AskRequest(BaseModel):
@@ -24,16 +34,17 @@ class AskRequest(BaseModel):
 app = FastAPI()
 
 
-def _require_session(session_id: str, db: Client) -> None:
-    """Raises 404 if session_id does not exist in chat_sessions."""
+def _get_session(session_id: str, db: Client) -> dict:
+    """Returns session row (id, summary) or raises 404."""
     result = (
         db.table("chat_sessions")
-        .select("id")
+        .select("id, summary")
         .eq("id", session_id)
         .execute()
     )
     if not result.data:
         raise HTTPException(status_code=404, detail="Session nicht gefunden")
+    return result.data[0]
 
 
 def _assemble_history(
@@ -73,7 +84,7 @@ def create_session(db: Client = Depends(get_supabase)):
 
 @app.get("/history/{session_id}")
 def get_history(session_id: str, db: Client = Depends(get_supabase)):
-    _require_session(session_id, db)
+    _get_session(session_id, db)
     result = (
         db.table("chat_messages")
         .select("role, content, created_at")
@@ -86,7 +97,7 @@ def get_history(session_id: str, db: Client = Depends(get_supabase)):
 
 @app.post("/ask")
 def ask(req: AskRequest, db: Client = Depends(get_supabase)):
-    _require_session(req.session_id, db)
+    _get_session(req.session_id, db)
 
     # 0. Gesprächsverlauf laden (vor dem Speichern der neuen Frage)
     history_result = (

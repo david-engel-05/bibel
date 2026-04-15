@@ -159,6 +159,10 @@ def test_ask_streams_response(mocker):
 def test_ask_saves_assistant_message_via_background(mocker):
     """Assistant message must be saved even if we rely on background task."""
     mock_db = make_mock_db()
+    # Session exists, no summary yet
+    mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[{"id": "123e4567-e89b-12d3-a456-426614174000", "summary": None}]
+    )
     mock_db.rpc.return_value.execute.return_value = MagicMock(data=[])
     insert_mock = mock_db.table.return_value.insert.return_value.execute
 
