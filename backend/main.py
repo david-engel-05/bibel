@@ -67,6 +67,19 @@ def get_history(session_id: str, db: Client = Depends(get_supabase)):
 def ask(req: AskRequest, db: Client = Depends(get_supabase)):
     _require_session(req.session_id, db)
 
+    # 0. Gesprächsverlauf laden (vor dem Speichern der neuen Frage)
+    history_result = (
+        db.table("chat_messages")
+        .select("role, content")
+        .eq("session_id", req.session_id)
+        .order("created_at")
+        .execute()
+    )
+    history = [
+        {"role": m["role"], "content": m["content"]}
+        for m in history_result.data
+    ]
+
     # 1. Frage einbetten
     embed_result = ollama.embed(model=EMBED_MODEL, input=req.question)
     question_embedding = embed_result.embeddings[0]
@@ -103,6 +116,7 @@ def ask(req: AskRequest, db: Client = Depends(get_supabase)):
                         f"Relevante Bibelstellen:\n{context}"
                     ),
                 },
+                *history,
                 {"role": "user", "content": req.question},
             ],
             stream=True,

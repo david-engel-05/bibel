@@ -229,3 +229,56 @@ def test_ask_returns_404_for_unknown_session(mocker):
 
     assert response.status_code == 404
     app.dependency_overrides.clear()
+
+
+def test_ask_includes_history_in_ollama_call(mocker):
+    """Previous messages from DB must be passed to ollama.chat."""
+    mock_db = make_mock_db()
+
+    # Session exists
+    mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[{"id": "test-session"}]
+    )
+    # History: one prior exchange
+    mock_db.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(
+        data=[
+            {"role": "user", "content": "Was ist Glaube?"},
+            {"role": "assistant", "content": "Glaube ist Vertrauen in Gott."},
+        ]
+    )
+    # Verse search
+    mock_db.rpc.return_value.execute.return_value = MagicMock(data=[])
+    # Insert mock
+    mock_db.table.return_value.insert.return_value.execute.return_value = MagicMock(data=[])
+
+    mock_embed = mocker.patch("main.ollama.embed")
+    mock_embed.return_value = MagicMock(embeddings=[[0.1] * 768])
+
+    chat_mock = mocker.patch("main.ollama.chat", return_value=iter([
+        MagicMock(message=MagicMock(content="Ja."))
+    ]))
+
+    import os
+    os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
+    os.environ.setdefault("SUPABASE_KEY", "test-key")
+
+    from main import app, get_supabase
+    app.dependency_overrides[get_supabase] = lambda: mock_db
+    client = TestClient(app)
+
+    client.post(
+        "/ask",
+        json={"question": "Erkläre das genauer", "session_id": "test-session"},
+    )
+
+    # ollama.chat must have been called with history messages
+    call_kwargs = chat_mock.call_args[1]
+    messages = call_kwargs["messages"]
+    roles = [m["role"] for m in messages]
+    assert "user" in roles
+    assert "assistant" in roles
+    # The prior user message must appear before the current one
+    user_msgs = [m["content"] for m in messages if m["role"] == "user"]
+    assert "Was ist Glaube?" in user_msgs
+    assert "Erkläre das genauer" in user_msgs
+    app.dependency_overrides.clear()
