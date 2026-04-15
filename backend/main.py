@@ -68,6 +68,46 @@ def _assemble_history(
     return all_history
 
 
+def _maybe_summarize(
+    session_id: str,
+    db: Client,
+    threshold: int,
+    fresh_window: int,
+) -> None:
+    """
+    Called inside BackgroundTask. Fetches all messages for the session.
+    If count > threshold, summarizes all-except-last-fresh_window using Ollama
+    and upserts the result into chat_sessions.summary.
+    All exceptions are silently swallowed — summary is best-effort.
+    """
+    try:
+        msgs_result = (
+            db.table("chat_messages")
+            .select("role, content")
+            .eq("session_id", session_id)
+            .order("created_at")
+            .execute()
+        )
+        msgs = msgs_result.data
+        if len(msgs) <= threshold:
+            return
+        to_summarize = msgs[:-fresh_window]
+        summary_response = ollama.chat(
+            model=CHAT_MODEL,
+            messages=[
+                {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
+                *[{"role": m["role"], "content": m["content"]} for m in to_summarize],
+            ],
+            stream=False,
+        )
+        summary_text = summary_response.message.content
+        db.table("chat_sessions").update({"summary": summary_text}).eq(
+            "id", session_id
+        ).execute()
+    except Exception:
+        pass
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
