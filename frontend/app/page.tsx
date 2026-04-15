@@ -248,31 +248,166 @@ export default function Home() {
           </div>
         </div>
 
-        <button
-          onClick={newChat}
-          className="flex items-center gap-2 transition-colors"
-          style={{
-            fontSize: "0.75rem",
-            letterSpacing: "0.08em",
-            color: "var(--text-dim)",
-            border: "1px solid var(--border)",
-            borderRadius: "6px",
-            padding: "6px 12px",
-            background: "transparent",
-            cursor: "pointer",
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.color = "var(--gold)";
-            (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--gold-dim)";
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.color = "var(--text-dim)";
-            (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border)";
-          }}
-        >
-          <PlusIcon />
-          NEUER CHAT
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Session badge + copy */}
+          {sessionId && (
+            <div className="flex items-center gap-1">
+              <span
+                style={{
+                  fontFamily: "var(--font-mono, monospace)",
+                  fontSize: "0.7rem",
+                  color: "var(--text-dim)",
+                  letterSpacing: "0.04em",
+                  userSelect: "all",
+                }}
+              >
+                {sessionId.slice(0, 8)}…
+              </span>
+              <button
+                onClick={copySessionId}
+                title="Session-ID kopieren"
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  color: copySuccess ? "var(--gold)" : "var(--text-dim)",
+                  padding: "2px 4px",
+                  borderRadius: "4px",
+                  display: "flex",
+                  alignItems: "center",
+                  transition: "color 0.15s",
+                }}
+              >
+                {copySuccess ? <CheckIcon /> : <CopyIcon />}
+              </button>
+            </div>
+          )}
+
+          {/* Load session button + expanding input */}
+          <div style={{ position: "relative" }}>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => {
+                  setShowSessionInput((v) => !v);
+                  setSessionError(null);
+                  setSessionInput("");
+                  setTimeout(() => sessionInputRef.current?.focus(), 50);
+                }}
+                title="Session laden"
+                className="flex items-center gap-1 transition-colors"
+                style={{
+                  fontSize: "0.7rem",
+                  letterSpacing: "0.08em",
+                  color: showSessionInput ? "var(--gold)" : "var(--text-dim)",
+                  border: `1px solid ${showSessionInput ? "var(--gold-dim)" : "var(--border)"}`,
+                  borderRadius: "6px",
+                  padding: "5px 8px",
+                  background: "transparent",
+                  cursor: "pointer",
+                }}
+              >
+                <LoadSessionIcon />
+              </button>
+
+              {showSessionInput && (
+                <div className="flex items-center gap-1">
+                  <input
+                    ref={sessionInputRef}
+                    type="text"
+                    value={sessionInput}
+                    onChange={(e) => {
+                      setSessionInput(e.target.value);
+                      setSessionError(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") loadSession();
+                      if (e.key === "Escape") {
+                        setShowSessionInput(false);
+                        setSessionInput("");
+                        setSessionError(null);
+                      }
+                    }}
+                    placeholder="Session-ID eingeben…"
+                    style={{
+                      width: "220px",
+                      background: "var(--bg-surface-2)",
+                      border: `1px solid ${sessionError ? "#c0392b" : "var(--border)"}`,
+                      borderRadius: "6px",
+                      padding: "5px 10px",
+                      fontSize: "0.75rem",
+                      color: "var(--text)",
+                      outline: "none",
+                      fontFamily: "var(--font-mono, monospace)",
+                    }}
+                  />
+                  <button
+                    onClick={loadSession}
+                    disabled={!sessionInput.trim()}
+                    style={{
+                      fontSize: "0.7rem",
+                      letterSpacing: "0.06em",
+                      color: sessionInput.trim() ? "var(--gold)" : "var(--text-muted)",
+                      border: `1px solid ${sessionInput.trim() ? "var(--gold-dim)" : "var(--border)"}`,
+                      borderRadius: "6px",
+                      padding: "5px 10px",
+                      background: "transparent",
+                      cursor: sessionInput.trim() ? "pointer" : "not-allowed",
+                    }}
+                  >
+                    LADEN
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Error message */}
+            {sessionError && (
+              <p
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 4px)",
+                  right: 0,
+                  fontSize: "0.7rem",
+                  color: "#e74c3c",
+                  whiteSpace: "nowrap",
+                  background: "var(--bg-surface)",
+                  padding: "2px 6px",
+                  borderRadius: "4px",
+                  border: "1px solid rgba(231,76,60,0.3)",
+                }}
+              >
+                {sessionError}
+              </p>
+            )}
+          </div>
+
+          {/* New chat */}
+          <button
+            onClick={newChat}
+            className="flex items-center gap-2 transition-colors"
+            style={{
+              fontSize: "0.75rem",
+              letterSpacing: "0.08em",
+              color: "var(--text-dim)",
+              border: "1px solid var(--border)",
+              borderRadius: "6px",
+              padding: "6px 12px",
+              background: "transparent",
+              cursor: "pointer",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = "var(--gold)";
+              (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--gold-dim)";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = "var(--text-dim)";
+              (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border)";
+            }}
+          >
+            <PlusIcon />
+            NEUER CHAT
+          </button>
+        </div>
       </header>
 
       {/* Messages */}
