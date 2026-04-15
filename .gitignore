@@ -1,0 +1,5 @@
+.worktrees/
+backend/.env
+backend/import.log
+backend/venv/
+.superpowers/
