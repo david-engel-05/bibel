@@ -109,7 +109,7 @@ def test_get_history_empty_for_new_session():
 def test_ask_streams_response(mocker):
     mock_db = make_mock_db()
     mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
-        data=[{"id": "test-session-id", "summary": None}]
+        data=[{"id": "test-session-id", "summary": None, "summary_upto_count": 0}]
     )
 
     # Verse-Suche gibt 2 Verse zurück
@@ -373,14 +373,25 @@ def test_maybe_summarize_not_triggered_at_or_below_threshold(mocker):
     mock_chat.assert_not_called()
 
 
+def _setup_summarize_mocks(mock_db, msgs, current_upto_count):
+    """Wires both DB query mocks needed by _maybe_summarize:
+    - chat_messages (with .order) → msgs
+    - chat_sessions fresh read (without .order) → current_upto_count
+    """
+    mock_db.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(
+        data=msgs
+    )
+    mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[{"summary_upto_count": current_upto_count}]
+    )
+
+
 def test_maybe_summarize_not_triggered_below_batch_size(mocker):
     """With 11 msgs and upto_count=5, msgs_to_cover=5 < 5+4=9 → skip."""
     from main import _maybe_summarize
     mock_db = MagicMock()
     msgs = [{"role": "user", "content": f"msg {i}"} for i in range(11)]
-    mock_db.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(
-        data=msgs
-    )
+    _setup_summarize_mocks(mock_db, msgs, current_upto_count=5)
     mock_chat = mocker.patch("main.ollama.chat")
     _maybe_summarize("session-1", mock_db, threshold=10, fresh_window=6, batch_size=4, current_upto_count=5)
     mock_chat.assert_not_called()
@@ -390,9 +401,7 @@ def test_maybe_summarize_triggered_above_threshold(mocker):
     from main import _maybe_summarize
     mock_db = MagicMock()
     msgs = [{"role": "user", "content": f"msg {i}"} for i in range(11)]
-    mock_db.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(
-        data=msgs
-    )
+    _setup_summarize_mocks(mock_db, msgs, current_upto_count=0)
     mock_chat = mocker.patch("main.ollama.chat")
     mock_chat.return_value = MagicMock(message=MagicMock(content="Zusammenfassung Text"))
 
@@ -412,9 +421,7 @@ def test_maybe_summarize_saves_correct_summary_text(mocker):
     from main import _maybe_summarize
     mock_db = MagicMock()
     msgs = [{"role": "user", "content": f"msg {i}"} for i in range(11)]
-    mock_db.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(
-        data=msgs
-    )
+    _setup_summarize_mocks(mock_db, msgs, current_upto_count=0)
     mock_chat = mocker.patch("main.ollama.chat")
     mock_chat.return_value = MagicMock(message=MagicMock(content="Meine Zusammenfassung"))
 
@@ -429,9 +436,7 @@ def test_maybe_summarize_silently_ignores_ollama_failure(mocker):
     from main import _maybe_summarize
     mock_db = MagicMock()
     msgs = [{"role": "user", "content": f"msg {i}"} for i in range(11)]
-    mock_db.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(
-        data=msgs
-    )
+    _setup_summarize_mocks(mock_db, msgs, current_upto_count=0)
     mocker.patch("main.ollama.chat", side_effect=Exception("Ollama unavailable"))
 
     # Must not raise

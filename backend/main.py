@@ -87,8 +87,12 @@ def _maybe_summarize(
       msgs_to_cover = total_messages - fresh_window
       Only summarize if msgs_to_cover >= current_upto_count + batch_size
 
-    All exceptions are silently swallowed — summary is best-effort.
+    Re-reads summary_upto_count from DB before the guard so that concurrent
+    requests cannot both trigger a redundant summarization.
+
+    All exceptions are swallowed — summary is best-effort, but logged to stderr.
     """
+    import sys
     try:
         msgs_result = (
             db.table("chat_messages")
@@ -101,6 +105,15 @@ def _maybe_summarize(
         if len(msgs) <= threshold:
             return
         msgs_to_cover = len(msgs) - fresh_window
+        # Re-read the current boundary from DB to handle concurrent requests
+        session_result = (
+            db.table("chat_sessions")
+            .select("summary_upto_count")
+            .eq("id", session_id)
+            .execute()
+        )
+        if session_result.data:
+            current_upto_count = session_result.data[0].get("summary_upto_count") or 0
         if msgs_to_cover < current_upto_count + batch_size:
             return  # not enough new messages to justify a re-summarization
         to_summarize = msgs[:msgs_to_cover]
@@ -116,8 +129,8 @@ def _maybe_summarize(
         db.table("chat_sessions").update(
             {"summary": summary_text, "summary_upto_count": msgs_to_cover}
         ).eq("id", session_id).execute()
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[summarize] session={session_id} error={exc}", file=sys.stderr)
 
 
 app.add_middleware(
