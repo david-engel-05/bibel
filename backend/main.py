@@ -81,7 +81,13 @@ def ask(req: AskRequest, db: Client = Depends(get_supabase)):
     ]
 
     # 1. Frage einbetten
-    embed_result = ollama.embed(model=EMBED_MODEL, input=req.question)
+    try:
+        embed_result = ollama.embed(model=EMBED_MODEL, input=req.question)
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Ollama nicht erreichbar: {e}",
+        )
     question_embedding = embed_result.embeddings[0]
 
     # 2. Top-5 semantisch ähnliche Verse aus Supabase laden
