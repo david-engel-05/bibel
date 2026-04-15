@@ -93,12 +93,17 @@ export default function Home() {
 
   async function copySessionId() {
     if (!sessionId) return;
-    await navigator.clipboard.writeText(sessionId);
-    setCopySuccess(true);
-    setTimeout(() => setCopySuccess(false), 1500);
+    try {
+      await navigator.clipboard.writeText(sessionId);
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 1500);
+    } catch {
+      // clipboard access denied — silently ignore
+    }
   }
 
   async function loadSession() {
+    if (streaming) return;
     const id = sessionInput.trim();
     if (!id) return;
     setSessionError(null);
