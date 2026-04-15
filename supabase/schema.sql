@@ -48,3 +48,10 @@ as $$
   order by embedding <=> query_embedding
   limit match_count;
 $$;
+
+-- Performance: ivfflat index for cosine similarity search
+-- Run this separately after bible_verses is populated (import_bible.py)
+-- CREATE INDEX IF NOT EXISTS bible_verses_embedding_idx
+--   ON bible_verses USING ivfflat (embedding vector_cosine_ops)
+--   WITH (lists = 100);
+-- ANALYZE bible_verses;
