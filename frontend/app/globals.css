@@ -20,7 +20,12 @@
 /* ─── Base ───────────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 
-html, body {
+html {
+  color-scheme: dark;
+  height: 100%;
+}
+
+body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans), system-ui, sans-serif;

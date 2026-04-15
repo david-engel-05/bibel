@@ -13,6 +13,7 @@ const garamond = EB_Garamond({
   subsets: ["latin"],
   weight: ["400", "500", "600"],
   style: ["normal", "italic"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -29,8 +30,15 @@ export default function RootLayout({
     <html
       lang="de"
       className={`${geist.variable} ${garamond.variable} h-full`}
+      style={{ colorScheme: "dark", background: "#0c0b0a" }}
     >
-      <body className="min-h-full flex flex-col antialiased">{children}</body>
+      <body
+        className="min-h-full flex flex-col antialiased"
+        style={{ background: "#0c0b0a", color: "#f0ebe0" }}
+        suppressHydrationWarning
+      >
+        {children}
+      </body>
     </html>
   );
 }
