@@ -17,3 +17,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.post("/session")
+def create_session(db: Client = Depends(get_supabase)):
+    result = db.table("chat_sessions").insert({}).execute()
+    return {"session_id": result.data[0]["id"]}
