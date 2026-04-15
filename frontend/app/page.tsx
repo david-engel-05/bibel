@@ -9,16 +9,42 @@ type Message = {
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+function CrossIcon() {
+  return (
+    <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="17" y="4" width="6" height="32" rx="1.5" fill="currentColor" />
+      <rect x="6" y="13" width="28" height="6" rx="1.5" fill="currentColor" />
+    </svg>
+  );
+}
+
+function SendIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="22" y1="2" x2="11" y2="13" />
+      <polygon points="22 2 15 22 11 13 2 9 22 2" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  );
+}
+
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => {
-    initSession();
-  }, []);
+  useEffect(() => { initSession(); }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -34,8 +60,7 @@ export default function Home() {
     }
     setSessionId(id);
     const histRes = await fetch(`${API}/history/${id}`);
-    const history: { role: "user" | "assistant"; content: string }[] =
-      await histRes.json();
+    const history: { role: "user" | "assistant"; content: string }[] = await histRes.json();
     setMessages(history.map((m) => ({ role: m.role, content: m.content })));
   }
 
@@ -46,6 +71,7 @@ export default function Home() {
     localStorage.setItem("session_id", id);
     setSessionId(id);
     setMessages([]);
+    setTimeout(() => inputRef.current?.focus(), 50);
   }
 
   async function send() {
@@ -92,7 +118,7 @@ export default function Home() {
           });
         }
       }
-    } catch (e) {
+    } catch {
       setMessages((prev) => [
         ...prev.slice(0, -1),
         { role: "assistant", content: "Verbindungsfehler: Backend nicht erreichbar." },
@@ -102,73 +128,281 @@ export default function Home() {
     }
   }
 
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  }
+
   return (
-    <div className="flex flex-col h-screen bg-gray-950 text-white">
+    <div
+      className="flex flex-col h-screen"
+      style={{ background: "var(--bg)", color: "var(--text)", position: "relative", zIndex: 1 }}
+    >
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-gray-800 shrink-0">
-        <h1 className="text-xl font-bold">Bibel KI</h1>
+      <header
+        style={{
+          borderBottom: "1px solid var(--border)",
+          background: "var(--bg-surface)",
+          backdropFilter: "blur(8px)",
+        }}
+        className="flex items-center justify-between px-6 py-4 shrink-0"
+      >
+        <div className="flex items-center gap-3">
+          <span style={{ color: "var(--gold)", opacity: 0.8 }}>
+            <CrossIcon />
+          </span>
+          <div>
+            <h1
+              style={{
+                fontFamily: "var(--font-serif), Georgia, serif",
+                fontSize: "1.2rem",
+                fontWeight: 600,
+                letterSpacing: "0.08em",
+                color: "var(--text)",
+              }}
+            >
+              BIBEL KI
+            </h1>
+            <p style={{ fontSize: "0.65rem", color: "var(--text-dim)", letterSpacing: "0.12em" }}>
+              SCHRIFT · FRAGEN · ANTWORTEN
+            </p>
+          </div>
+        </div>
+
         <button
           onClick={newChat}
-          className="text-sm text-gray-400 hover:text-white px-3 py-1 rounded border border-gray-700 hover:border-gray-500 transition-colors"
+          className="flex items-center gap-2 transition-colors"
+          style={{
+            fontSize: "0.75rem",
+            letterSpacing: "0.08em",
+            color: "var(--text-dim)",
+            border: "1px solid var(--border)",
+            borderRadius: "6px",
+            padding: "6px 12px",
+            background: "transparent",
+            cursor: "pointer",
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.color = "var(--gold)";
+            (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--gold-dim)";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.color = "var(--text-dim)";
+            (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border)";
+          }}
         >
-          Neuer Chat
+          <PlusIcon />
+          NEUER CHAT
         </button>
       </header>
 
-      {/* Nachrichten */}
-      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
-        {messages.length === 0 && (
-          <p className="text-center text-gray-500 mt-24 text-sm">
-            Stelle eine Frage zur Bibel
-          </p>
-        )}
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-          >
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto" style={{ padding: "2rem 1rem" }}>
+        <div style={{ maxWidth: "720px", margin: "0 auto" }}>
+
+          {/* Empty state */}
+          {messages.length === 0 && (
             <div
-              className={`max-w-2xl px-5 py-4 rounded-2xl ${
-                msg.role === "user"
-                  ? "bg-blue-600 text-white text-sm leading-relaxed"
-                  : "bg-gray-800 text-gray-100"
-              }`}
+              className="flex flex-col items-center justify-center message-animate"
+              style={{ paddingTop: "6rem", paddingBottom: "2rem", textAlign: "center" }}
             >
-              {msg.role === "assistant" ? (
-                <div className="assistant-markdown">
-                  <ReactMarkdown>
-                    {msg.content ||
-                      (streaming && i === messages.length - 1 ? "▋" : "")}
-                  </ReactMarkdown>
-                </div>
-              ) : (
-                msg.content
-              )}
+              <div style={{ color: "var(--gold)", opacity: 0.3, marginBottom: "1.5rem" }}>
+                <CrossIcon />
+              </div>
+              <p
+                style={{
+                  fontFamily: "var(--font-serif), Georgia, serif",
+                  fontSize: "1.4rem",
+                  fontWeight: 400,
+                  fontStyle: "italic",
+                  color: "var(--text-dim)",
+                  marginBottom: "0.75rem",
+                }}
+              >
+                Was sucht dein Herz in der Schrift?
+              </p>
+              <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", letterSpacing: "0.1em" }}>
+                FRAGE ZU EINEM VERS · THEMA · BUCH DER BIBEL
+              </p>
             </div>
+          )}
+
+          {/* Message list */}
+          <div className="flex flex-col gap-6">
+            {messages.map((msg, i) => (
+              <div
+                key={i}
+                className="message-animate"
+                style={{
+                  display: "flex",
+                  justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
+                }}
+              >
+                {msg.role === "user" ? (
+                  /* User bubble */
+                  <div
+                    style={{
+                      maxWidth: "80%",
+                      background: "var(--bg-user)",
+                      border: "1px solid var(--border)",
+                      borderRadius: "16px 16px 4px 16px",
+                      padding: "0.75rem 1.1rem",
+                      fontSize: "0.9rem",
+                      lineHeight: "1.6",
+                      color: "var(--text)",
+                    }}
+                  >
+                    {msg.content}
+                  </div>
+                ) : (
+                  /* Assistant answer */
+                  <div
+                    style={{
+                      width: "100%",
+                      paddingLeft: "1.2rem",
+                      borderLeft: "2px solid var(--border-gold)",
+                    }}
+                  >
+                    <div className="assistant-markdown">
+                      <ReactMarkdown>
+                        {msg.content || ""}
+                      </ReactMarkdown>
+                      {streaming && i === messages.length - 1 && msg.content === "" && (
+                        <span className="streaming-cursor" />
+                      )}
+                      {streaming && i === messages.length - 1 && msg.content !== "" && (
+                        <span className="streaming-cursor" />
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
-        ))}
-        <div ref={bottomRef} />
+
+          <div ref={bottomRef} style={{ height: "1px" }} />
+        </div>
       </div>
 
-      {/* Eingabe */}
-      <div className="border-t border-gray-800 px-4 py-4 shrink-0">
-        <div className="flex gap-2 max-w-3xl mx-auto">
-          <input
-            className="flex-1 bg-gray-800 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-            placeholder="z.B. Was bedeutet Johannes 3:16?"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && send()}
-            disabled={streaming}
-          />
+      {/* Input */}
+      <div
+        style={{
+          borderTop: "1px solid var(--border)",
+          background: "var(--bg-surface)",
+          padding: "1rem",
+          flexShrink: 0,
+        }}
+      >
+        <div
+          style={{
+            maxWidth: "720px",
+            margin: "0 auto",
+            display: "flex",
+            gap: "0.75rem",
+            alignItems: "flex-end",
+          }}
+        >
+          <div style={{ flex: 1, position: "relative" }}>
+            <textarea
+              ref={inputRef}
+              rows={1}
+              style={{
+                width: "100%",
+                background: "var(--bg-surface-2)",
+                border: "1px solid var(--border)",
+                borderRadius: "12px",
+                padding: "0.8rem 1rem",
+                color: "var(--text)",
+                fontSize: "0.9rem",
+                lineHeight: "1.5",
+                outline: "none",
+                resize: "none",
+                fontFamily: "var(--font-sans), system-ui, sans-serif",
+                transition: "border-color 0.15s",
+                opacity: streaming ? 0.5 : 1,
+                overflowY: "hidden",
+              }}
+              placeholder="z.B. Was bedeutet Johannes 3:16?"
+              value={input}
+              disabled={streaming}
+              onChange={(e) => {
+                setInput(e.target.value);
+                // Auto-resize
+                e.target.style.height = "auto";
+                e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
+              }}
+              onKeyDown={handleKeyDown}
+              onFocus={(e) => {
+                e.target.style.borderColor = "var(--gold-dim)";
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = "var(--border)";
+              }}
+            />
+          </div>
+
           <button
             onClick={send}
             disabled={streaming || !input.trim()}
-            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed px-5 py-3 rounded-xl font-medium transition-colors"
+            style={{
+              background: input.trim() && !streaming ? "var(--gold)" : "var(--bg-surface-2)",
+              color: input.trim() && !streaming ? "#0c0b0a" : "var(--text-muted)",
+              border: "1px solid",
+              borderColor: input.trim() && !streaming ? "var(--gold)" : "var(--border)",
+              borderRadius: "12px",
+              padding: "0.8rem 1rem",
+              cursor: streaming || !input.trim() ? "not-allowed" : "pointer",
+              transition: "all 0.15s ease",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+            onMouseEnter={(e) => {
+              if (!streaming && input.trim()) {
+                (e.currentTarget as HTMLButtonElement).style.background = "#e8c870";
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!streaming && input.trim()) {
+                (e.currentTarget as HTMLButtonElement).style.background = "var(--gold)";
+              }
+            }}
           >
-            {streaming ? "..." : "Senden"}
+            {streaming ? (
+              <span style={{ display: "flex", gap: "2px", alignItems: "center" }}>
+                {[0, 1, 2].map((n) => (
+                  <span
+                    key={n}
+                    style={{
+                      width: "3px",
+                      height: "3px",
+                      borderRadius: "50%",
+                      background: "var(--text-muted)",
+                      animation: `cursor-pulse 1s ease-in-out ${n * 0.2}s infinite`,
+                    }}
+                  />
+                ))}
+              </span>
+            ) : (
+              <SendIcon />
+            )}
           </button>
         </div>
+
+        <p
+          style={{
+            textAlign: "center",
+            fontSize: "0.65rem",
+            color: "var(--text-muted)",
+            letterSpacing: "0.08em",
+            marginTop: "0.6rem",
+          }}
+        >
+          ENTER zum Senden · SHIFT+ENTER für neue Zeile
+        </p>
       </div>
     </div>
   );
