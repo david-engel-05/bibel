@@ -36,6 +36,27 @@ def _require_session(session_id: str, db: Client) -> None:
         raise HTTPException(status_code=404, detail="Session nicht gefunden")
 
 
+def _assemble_history(
+    all_history: list[dict],
+    summary: str | None,
+    fresh_window: int,
+) -> list[dict]:
+    """
+    Returns the message list to pass to Ollama.
+    If summary is set, prepends it as a system message and returns only
+    the last `fresh_window` raw messages.  Otherwise returns full history.
+    """
+    if summary:
+        return [
+            {
+                "role": "system",
+                "content": f"Zusammenfassung des bisherigen Gesprächs:\n{summary}",
+            },
+            *all_history[-fresh_window:],
+        ]
+    return all_history
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,

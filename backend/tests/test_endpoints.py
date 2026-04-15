@@ -315,3 +315,42 @@ def test_ask_includes_history_in_ollama_call(mocker):
     assert "Was ist Glaube?" in user_msgs
     assert "Erkläre das genauer" in user_msgs
     app.dependency_overrides.clear()
+
+
+# --- _assemble_history ---
+
+def test_assemble_history_no_summary_returns_full_history():
+    from main import _assemble_history
+    history = [
+        {"role": "user", "content": "Frage 1"},
+        {"role": "assistant", "content": "Antwort 1"},
+        {"role": "user", "content": "Frage 2"},
+        {"role": "assistant", "content": "Antwort 2"},
+    ]
+    result = _assemble_history(history, summary=None, fresh_window=6)
+    assert result == history
+
+
+def test_assemble_history_with_summary_injects_system_message():
+    from main import _assemble_history
+    history = [{"role": "user", "content": f"Nachricht {i}"} for i in range(10)]
+    result = _assemble_history(history, summary="Test Zusammenfassung", fresh_window=6)
+    assert result[0]["role"] == "system"
+    assert "Test Zusammenfassung" in result[0]["content"]
+
+
+def test_assemble_history_with_summary_keeps_only_fresh_window():
+    from main import _assemble_history
+    history = [{"role": "user", "content": f"msg {i}"} for i in range(10)]
+    result = _assemble_history(history, summary="Zusammenfassung", fresh_window=6)
+    # 1 summary system message + 6 fresh messages
+    assert len(result) == 7
+    assert result[1:] == history[-6:]
+
+
+def test_assemble_history_empty_history_with_summary():
+    from main import _assemble_history
+    result = _assemble_history([], summary="Zusammenfassung", fresh_window=6)
+    assert len(result) == 1
+    assert result[0]["role"] == "system"
+    assert "Zusammenfassung" in result[0]["content"]
