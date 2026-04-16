@@ -573,3 +573,24 @@ def test_ask_passes_num_ctx_and_num_predict_to_ollama_chat(mocker):
     assert first_call_kwargs["options"]["num_ctx"] == CHAT_NUM_CTX
     assert first_call_kwargs["options"]["num_predict"] == CHAT_NUM_PREDICT
     app.dependency_overrides.clear()
+
+
+def test_maybe_summarize_uses_summary_model_not_chat_model(mocker):
+    """_maybe_summarize must call ollama.chat with SUMMARY_MODEL, not CHAT_MODEL."""
+    from main import _maybe_summarize, SUMMARY_MODEL, CHAT_MODEL
+
+    assert SUMMARY_MODEL != CHAT_MODEL, "Test only meaningful when models differ"
+
+    mock_db = MagicMock()
+    msgs = [{"role": "user", "content": f"msg {i}"} for i in range(11)]
+    _setup_summarize_mocks(mock_db, msgs, current_upto_count=0)
+
+    mock_chat = mocker.patch("main.ollama.chat")
+    mock_chat.return_value = MagicMock(message=MagicMock(content="Zusammenfassung"))
+
+    _maybe_summarize("session-1", mock_db, threshold=10, fresh_window=6, batch_size=4, current_upto_count=0)
+
+    mock_chat.assert_called_once()
+    call_kwargs = mock_chat.call_args[1]
+    assert call_kwargs["model"] == SUMMARY_MODEL
+    assert call_kwargs["model"] != CHAT_MODEL

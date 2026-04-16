@@ -123,12 +123,13 @@ def _maybe_summarize(
             return  # not enough new messages to justify a re-summarization
         to_summarize = msgs[:msgs_to_cover]
         summary_response = ollama.chat(
-            model=CHAT_MODEL,
+            model=SUMMARY_MODEL,
             messages=[
                 {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
                 *[{"role": m["role"], "content": m["content"]} for m in to_summarize],
             ],
             stream=False,
+            options={"num_ctx": CHAT_NUM_CTX, "num_predict": CHAT_NUM_PREDICT},
         )
         summary_text = summary_response.message.content
         db.table("chat_sessions").update(
