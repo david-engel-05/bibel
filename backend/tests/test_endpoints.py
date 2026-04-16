@@ -134,6 +134,7 @@ def test_ask_streams_response(mocker):
             yield MagicMock(message=MagicMock(content=token))
 
     mocker.patch("main.ollama.chat", side_effect=fake_chat)
+    mocker.patch("main.time.sleep")
 
     import os
     os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
@@ -176,6 +177,7 @@ def test_ask_saves_assistant_message_via_background(mocker):
             yield MagicMock(message=MagicMock(content=token))
 
     mocker.patch("main.ollama.chat", side_effect=fake_chat)
+    mocker.patch("main.time.sleep")
 
     import os
     os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
@@ -296,6 +298,7 @@ def test_ask_includes_history_in_ollama_call(mocker):
     chat_mock = mocker.patch("main.ollama.chat", return_value=iter([
         MagicMock(message=MagicMock(content="Ja."))
     ]))
+    mocker.patch("main.time.sleep")
 
     import os
     os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
@@ -466,6 +469,7 @@ def test_ask_uses_full_history_when_no_summary(mocker):
     chat_mock = mocker.patch("main.ollama.chat", return_value=iter([
         MagicMock(message=MagicMock(content="Antwort."))
     ]))
+    mocker.patch("main.time.sleep")
 
     import os
     os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
@@ -506,6 +510,7 @@ def test_ask_uses_summary_and_recent_window_when_summary_exists(mocker):
     chat_mock = mocker.patch("main.ollama.chat", return_value=iter([
         MagicMock(message=MagicMock(content="Antwort."))
     ]))
+    mocker.patch("main.time.sleep")
 
     import os
     os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
