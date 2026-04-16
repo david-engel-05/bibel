@@ -1,4 +1,6 @@
 import os
+import sys
+import time
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -17,6 +19,10 @@ CORS_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", "http://localh
 SUMMARY_THRESHOLD = int(os.environ.get("SUMMARY_THRESHOLD", "10"))
 SUMMARY_FRESH_WINDOW = int(os.environ.get("SUMMARY_FRESH_WINDOW", "6"))
 SUMMARY_BATCH_SIZE = int(os.environ.get("SUMMARY_BATCH_SIZE", "4"))
+SUMMARY_MODEL = os.environ.get("SUMMARY_MODEL", "gemma3:4b")
+CHAT_NUM_CTX = int(os.environ.get("CHAT_NUM_CTX", "3072"))
+CHAT_NUM_PREDICT = int(os.environ.get("CHAT_NUM_PREDICT", "600"))
+SUMMARY_DELAY = int(os.environ.get("SUMMARY_DELAY", "5"))
 SUMMARY_SYSTEM_PROMPT = (
     "Du fasst ein Bibelgespräch zusammen. Erstelle eine strukturierte, "
     "deutschsprachige Zusammenfassung, die folgendes festhält:\n"
@@ -92,7 +98,6 @@ def _maybe_summarize(
 
     All exceptions are swallowed — summary is best-effort, but logged to stderr.
     """
-    import sys
     try:
         msgs_result = (
             db.table("chat_messages")

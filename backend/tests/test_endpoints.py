@@ -1,3 +1,5 @@
+import os
+os.environ.setdefault("SUMMARY_DELAY", "0")
 # backend/tests/test_endpoints.py
 import pytest
 from unittest.mock import MagicMock
@@ -527,3 +529,11 @@ def test_ask_uses_summary_and_recent_window_when_summary_exists(mocker):
     # So total: 1 (system) + 1 (summary) + 6 (raw history) + 1 (new question) = 9
     assert len(messages) == 9
     app.dependency_overrides.clear()
+
+
+def test_new_constants_have_correct_defaults():
+    import main
+    assert main.SUMMARY_MODEL == "gemma3:4b"
+    assert main.CHAT_NUM_CTX == 3072
+    assert main.CHAT_NUM_PREDICT == 600
+    assert main.SUMMARY_DELAY == 0  # 0 because test file sets SUMMARY_DELAY=0
