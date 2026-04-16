@@ -62,6 +62,15 @@ function LoadSessionIcon() {
   );
 }
 
+function TaskIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+    </svg>
+  );
+}
+
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -162,6 +171,39 @@ export default function Home() {
       setSessionInput("");
     } catch {
       setSessionError("Verbindungsfehler");
+    }
+  }
+
+  async function saveTask() {
+    if (!sessionId) return;
+    const newTask = taskInput.trim();
+    try {
+      await fetch(`${API}/session/${sessionId}/task`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task: newTask }),
+      });
+      setTask(newTask);
+      setShowTaskInput(false);
+      setTaskInput("");
+    } catch {
+      // Verbindungsfehler — silently ignore, task bleibt unverändert
+    }
+  }
+
+  async function deleteTask() {
+    if (!sessionId) return;
+    try {
+      await fetch(`${API}/session/${sessionId}/task`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task: "" }),
+      });
+      setTask("");
+      setTaskInput("");
+      setShowTaskInput(false);
+    } catch {
+      // silently ignore
     }
   }
 
@@ -394,6 +436,94 @@ export default function Home() {
                 {sessionError}
               </p>
             )}
+          </div>
+
+          {/* Auftrag Button */}
+          <div style={{ position: "relative" }}>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => {
+                  const willOpen = !showTaskInput;
+                  setShowTaskInput(willOpen);
+                  setTaskInput(task);
+                }}
+                title="Auftrag setzen"
+                className="flex items-center gap-1 transition-colors"
+                style={{
+                  fontSize: "0.7rem",
+                  letterSpacing: "0.08em",
+                  color: showTaskInput || task ? "var(--gold)" : "var(--text-dim)",
+                  border: `1px solid ${showTaskInput || task ? "var(--gold-dim)" : "var(--border)"}`,
+                  borderRadius: "6px",
+                  padding: "5px 8px",
+                  background: "transparent",
+                  cursor: "pointer",
+                }}
+              >
+                <TaskIcon />
+              </button>
+
+              {showTaskInput && (
+                <div className="flex items-center gap-1">
+                  <input
+                    type="text"
+                    value={taskInput}
+                    onChange={(e) => setTaskInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") saveTask();
+                      if (e.key === "Escape") {
+                        setShowTaskInput(false);
+                        setTaskInput("");
+                      }
+                    }}
+                    placeholder="Auftrag für diesen Chat…"
+                    style={{
+                      width: "240px",
+                      background: "var(--bg-surface-2)",
+                      border: "1px solid var(--border)",
+                      borderRadius: "6px",
+                      padding: "5px 10px",
+                      fontSize: "0.75rem",
+                      color: "var(--text)",
+                      outline: "none",
+                      fontFamily: "var(--font-sans), system-ui, sans-serif",
+                    }}
+                  />
+                  <button
+                    onClick={saveTask}
+                    style={{
+                      fontSize: "0.7rem",
+                      letterSpacing: "0.06em",
+                      color: taskInput.trim() ? "var(--gold)" : "var(--text-muted)",
+                      border: `1px solid ${taskInput.trim() ? "var(--gold-dim)" : "var(--border)"}`,
+                      borderRadius: "6px",
+                      padding: "5px 10px",
+                      background: "transparent",
+                      cursor: taskInput.trim() ? "pointer" : "default",
+                    }}
+                  >
+                    SETZEN
+                  </button>
+                  {task && (
+                    <button
+                      onClick={deleteTask}
+                      title="Auftrag löschen"
+                      style={{
+                        fontSize: "0.7rem",
+                        color: "var(--text-muted)",
+                        border: "1px solid var(--border)",
+                        borderRadius: "6px",
+                        padding: "5px 8px",
+                        background: "transparent",
+                        cursor: "pointer",
+                      }}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* New chat */}
