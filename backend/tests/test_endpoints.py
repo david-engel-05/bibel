@@ -416,9 +416,13 @@ def test_maybe_summarize_triggered_above_threshold(mocker):
     mock_chat.assert_called_once()
     call_kwargs = mock_chat.call_args[1]
     assert call_kwargs["messages"][0]["role"] == "system"
-    # msgs[:5] = 5 messages to summarize
-    summarized = call_kwargs["messages"][1:]
+    # msgs[:5] = 5 messages to summarize (exclude closing user message)
+    summarized = call_kwargs["messages"][1:-1]
     assert len(summarized) == 5
+    # verify the closing user message
+    closing = call_kwargs["messages"][-1]
+    assert closing["role"] == "user"
+    assert "Zusammenfassung" in closing["content"]
     assert call_kwargs.get("stream") is False
 
 
