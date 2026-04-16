@@ -86,6 +86,7 @@ export default function Home() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sessionInputRef = useRef<HTMLInputElement>(null);
+  const taskInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { initSession(); }, []);
 
@@ -132,6 +133,8 @@ export default function Home() {
     setSessionId(id);
     setMessages([]);
     setTask("");
+    setShowTaskInput(false);
+    setTaskInput("");
     setTimeout(() => inputRef.current?.focus(), 50);
   }
 
@@ -178,11 +181,12 @@ export default function Home() {
     if (!sessionId) return;
     const newTask = taskInput.trim();
     try {
-      await fetch(`${API}/session/${sessionId}/task`, {
+      const res = await fetch(`${API}/session/${sessionId}/task`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ task: newTask }),
       });
+      if (!res.ok) return;
       setTask(newTask);
       setShowTaskInput(false);
       setTaskInput("");
@@ -194,11 +198,12 @@ export default function Home() {
   async function deleteTask() {
     if (!sessionId) return;
     try {
-      await fetch(`${API}/session/${sessionId}/task`, {
+      const res = await fetch(`${API}/session/${sessionId}/task`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ task: "" }),
       });
+      if (!res.ok) return;
       setTask("");
       setTaskInput("");
       setShowTaskInput(false);
@@ -446,6 +451,7 @@ export default function Home() {
                   const willOpen = !showTaskInput;
                   setShowTaskInput(willOpen);
                   setTaskInput(task);
+                  if (willOpen) setTimeout(() => taskInputRef.current?.focus(), 50);
                 }}
                 title="Auftrag setzen"
                 className="flex items-center gap-1 transition-colors"
@@ -466,6 +472,7 @@ export default function Home() {
               {showTaskInput && (
                 <div className="flex items-center gap-1">
                   <input
+                    ref={taskInputRef}
                     type="text"
                     value={taskInput}
                     onChange={(e) => setTaskInput(e.target.value)}
