@@ -71,6 +71,9 @@ export default function Home() {
   const [sessionInput, setSessionInput] = useState("");
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [task, setTask] = useState<string>("");
+  const [showTaskInput, setShowTaskInput] = useState(false);
+  const [taskInput, setTaskInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sessionInputRef = useRef<HTMLInputElement>(null);
@@ -105,6 +108,11 @@ export default function Home() {
     const histRes = await fetch(`${API}/history/${id}`);
     const history: { role: "user" | "assistant"; content: string }[] = await histRes.json();
     setMessages(history.map((m) => ({ role: m.role, content: m.content })));
+    const sessionRes = await fetch(`${API}/session/${id}`);
+    if (sessionRes.ok) {
+      const sessionData = await sessionRes.json();
+      setTask(sessionData.task ?? "");
+    }
   }
 
   async function newChat() {
@@ -114,6 +122,7 @@ export default function Home() {
     localStorage.setItem("session_id", id);
     setSessionId(id);
     setMessages([]);
+    setTask("");
     setTimeout(() => inputRef.current?.focus(), 50);
   }
 
@@ -144,6 +153,11 @@ export default function Home() {
       localStorage.setItem("session_id", id);
       setSessionId(id);
       setMessages(history.map((m) => ({ role: m.role, content: m.content })));
+      const sessionRes = await fetch(`${API}/session/${id}`);
+      if (sessionRes.ok) {
+        const sessionData = await sessionRes.json();
+        setTask(sessionData.task ?? "");
+      }
       setShowSessionInput(false);
       setSessionInput("");
     } catch {
