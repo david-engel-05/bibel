@@ -594,3 +594,35 @@ def test_maybe_summarize_uses_summary_model_not_chat_model(mocker):
     call_kwargs = mock_chat.call_args[1]
     assert call_kwargs["model"] == SUMMARY_MODEL
     assert call_kwargs["model"] != CHAT_MODEL
+
+
+def test_ask_background_sleeps_before_summarize(mocker):
+    """save_and_maybe_summarize must call time.sleep(SUMMARY_DELAY) before _maybe_summarize."""
+    mock_db = make_mock_db()
+    mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[{"id": "test-session", "summary": None, "summary_upto_count": 0}]
+    )
+    mock_db.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(
+        data=[]
+    )
+    mock_db.rpc.return_value.execute.return_value = MagicMock(data=[])
+    mock_db.table.return_value.insert.return_value.execute.return_value = MagicMock(data=[])
+
+    mocker.patch("main.ollama.embed", return_value=MagicMock(embeddings=[[0.1] * 768]))
+    mocker.patch("main.ollama.chat", return_value=iter([
+        MagicMock(message=MagicMock(content="Antwort."))
+    ]))
+    sleep_mock = mocker.patch("main.time.sleep")
+
+    import os
+    os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
+    os.environ.setdefault("SUPABASE_KEY", "test-key")
+
+    from main import app, get_supabase, SUMMARY_DELAY
+    app.dependency_overrides[get_supabase] = lambda: mock_db
+    client = TestClient(app)
+
+    client.post("/ask", json={"question": "Test?", "session_id": "test-session"})
+
+    sleep_mock.assert_called_once_with(SUMMARY_DELAY)
+    app.dependency_overrides.clear()

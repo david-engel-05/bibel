@@ -248,6 +248,7 @@ def ask(req: AskRequest, db: Client = Depends(get_supabase)):
                 "content": "".join(full_response),
             }
         ).execute()
+        time.sleep(SUMMARY_DELAY)
         _maybe_summarize(req.session_id, db, SUMMARY_THRESHOLD, SUMMARY_FRESH_WINDOW, SUMMARY_BATCH_SIZE, summary_upto_count)
 
     return StreamingResponse(
