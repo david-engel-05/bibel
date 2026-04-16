@@ -686,7 +686,7 @@ export default function Home() {
                 fontFamily: "var(--font-sans), system-ui, sans-serif",
                 transition: "border-color 0.15s",
                 opacity: streaming ? 0.5 : 1,
-                overflowY: "hidden",
+                overflowY: "auto",
               }}
               placeholder="z.B. Was bedeutet Johannes 3:16?"
               value={input}
