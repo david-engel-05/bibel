@@ -484,6 +484,7 @@ export default function Home() {
                       }
                     }}
                     placeholder="Auftrag für diesen Chat…"
+                    maxLength={500}
                     style={{
                       width: "240px",
                       background: "var(--bg-surface-2)",

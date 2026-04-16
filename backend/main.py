@@ -4,7 +4,7 @@ import time
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 from supabase import Client
 import ollama
@@ -29,7 +29,7 @@ SUMMARY_SYSTEM_PROMPT = (
     "- Diskutierte Bibelstellen und -themen (mit genauen Versen, z.B. Johannes 3:16)\n"
     "- Wichtige Schlüsse und Erkenntnisse aus dem Gespräch\n"
     "- Offene Fragen oder Themen, auf die man zurückkommen wollte\n"
-    "- Wenn der nutzer eine aufgebe gegeben hat, fasse diese bitte auch in der Zusammenfassung mit auf. stelle es an den anfang der Zusammenfassung\n"
+    "- Wenn der Nutzer eine Aufgabe gegeben hat, fasse diese bitte auch in der Zusammenfassung mit auf. Stelle es an den Anfang der Zusammenfassung\n"
     "Halte die Zusammenfassung kompakt (maximal 400 Wörter)."
 )
 
@@ -40,7 +40,7 @@ class AskRequest(BaseModel):
 
 
 class TaskRequest(BaseModel):
-    task: str
+    task: str = Field(max_length=500)
 
 
 app = FastAPI()
