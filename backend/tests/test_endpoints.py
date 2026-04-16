@@ -537,3 +537,39 @@ def test_new_constants_have_correct_defaults():
     assert main.CHAT_NUM_CTX == 3072
     assert main.CHAT_NUM_PREDICT == 600
     assert main.SUMMARY_DELAY == 0  # 0 because test file sets SUMMARY_DELAY=0
+
+
+def test_ask_passes_num_ctx_and_num_predict_to_ollama_chat(mocker):
+    """ollama.chat for the main answer must receive num_ctx and num_predict options."""
+    mock_db = make_mock_db()
+    mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[{"id": "test-session", "summary": None, "summary_upto_count": 0}]
+    )
+    mock_db.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(
+        data=[]
+    )
+    mock_db.rpc.return_value.execute.return_value = MagicMock(data=[])
+    mock_db.table.return_value.insert.return_value.execute.return_value = MagicMock(data=[])
+
+    mocker.patch("main.ollama.embed", return_value=MagicMock(embeddings=[[0.1] * 768]))
+    chat_mock = mocker.patch("main.ollama.chat", return_value=iter([
+        MagicMock(message=MagicMock(content="Antwort."))
+    ]))
+    mocker.patch("main.time.sleep")
+
+    import os
+    os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
+    os.environ.setdefault("SUPABASE_KEY", "test-key")
+
+    from main import app, get_supabase, CHAT_NUM_CTX, CHAT_NUM_PREDICT
+    app.dependency_overrides[get_supabase] = lambda: mock_db
+    client = TestClient(app)
+
+    client.post("/ask", json={"question": "Test?", "session_id": "test-session"})
+
+    # The streaming call is the first call to ollama.chat
+    first_call_kwargs = chat_mock.call_args_list[0][1]
+    assert "options" in first_call_kwargs
+    assert first_call_kwargs["options"]["num_ctx"] == CHAT_NUM_CTX
+    assert first_call_kwargs["options"]["num_predict"] == CHAT_NUM_PREDICT
+    app.dependency_overrides.clear()

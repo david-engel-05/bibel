@@ -231,6 +231,7 @@ def ask(req: AskRequest, db: Client = Depends(get_supabase)):
                 {"role": "user", "content": req.question},
             ],
             stream=True,
+            options={"num_ctx": CHAT_NUM_CTX, "num_predict": CHAT_NUM_PREDICT},
         ):
             token = chunk.message.content
             if token:
