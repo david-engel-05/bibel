@@ -762,3 +762,73 @@ def test_patch_task_returns_404_for_unknown_session():
 
     assert response.status_code == 404
     app.dependency_overrides.clear()
+
+
+def test_ask_injects_task_into_system_prompt(mocker):
+    """Wenn Session einen Auftrag hat, muss er oben im System-Prompt erscheinen."""
+    mock_db = make_mock_db()
+    mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[{"id": "test-session", "summary": None, "summary_upto_count": 0, "task": "Errate mein Geschlecht"}]
+    )
+    mock_db.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(
+        data=[]
+    )
+    mock_db.rpc.return_value.execute.return_value = MagicMock(data=[])
+    mock_db.table.return_value.insert.return_value.execute.return_value = MagicMock(data=[])
+
+    mocker.patch("main.ollama.embed", return_value=MagicMock(embeddings=[[0.1] * 768]))
+    chat_mock = mocker.patch("main.ollama.chat", return_value=iter([
+        MagicMock(message=MagicMock(content="Antwort."))
+    ]))
+    mocker.patch("main.time.sleep")
+
+    import os
+    os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
+    os.environ.setdefault("SUPABASE_KEY", "test-key")
+
+    from main import app, get_supabase
+    app.dependency_overrides[get_supabase] = lambda: mock_db
+    client = TestClient(app)
+
+    client.post("/ask", json={"question": "Hallo", "session_id": "test-session"})
+
+    call_kwargs = chat_mock.call_args[1]
+    system_msg = call_kwargs["messages"][0]
+    assert system_msg["role"] == "system"
+    assert "Errate mein Geschlecht" in system_msg["content"]
+    assert "AUFTRAG" in system_msg["content"]
+    app.dependency_overrides.clear()
+
+
+def test_ask_no_task_injection_when_task_is_none(mocker):
+    """Wenn kein Auftrag gesetzt, darf kein AUFTRAG-Block im System-Prompt erscheinen."""
+    mock_db = make_mock_db()
+    mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[{"id": "test-session", "summary": None, "summary_upto_count": 0, "task": None}]
+    )
+    mock_db.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(
+        data=[]
+    )
+    mock_db.rpc.return_value.execute.return_value = MagicMock(data=[])
+    mock_db.table.return_value.insert.return_value.execute.return_value = MagicMock(data=[])
+
+    mocker.patch("main.ollama.embed", return_value=MagicMock(embeddings=[[0.1] * 768]))
+    chat_mock = mocker.patch("main.ollama.chat", return_value=iter([
+        MagicMock(message=MagicMock(content="Antwort."))
+    ]))
+    mocker.patch("main.time.sleep")
+
+    import os
+    os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
+    os.environ.setdefault("SUPABASE_KEY", "test-key")
+
+    from main import app, get_supabase
+    app.dependency_overrides[get_supabase] = lambda: mock_db
+    client = TestClient(app)
+
+    client.post("/ask", json={"question": "Hallo", "session_id": "test-session"})
+
+    call_kwargs = chat_mock.call_args[1]
+    system_msg = call_kwargs["messages"][0]
+    assert "AUFTRAG" not in system_msg["content"]
+    app.dependency_overrides.clear()

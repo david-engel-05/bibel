@@ -192,6 +192,7 @@ def ask(req: AskRequest, db: Client = Depends(get_supabase)):
     session = _get_session(req.session_id, db)
     current_summary = session.get("summary")
     summary_upto_count = session.get("summary_upto_count") or 0
+    current_task = session.get("task")
 
     # 0. Gesprächsverlauf laden
     history_result = (
@@ -242,7 +243,11 @@ def ask(req: AskRequest, db: Client = Depends(get_supabase)):
                 {
                     "role": "system",
                     "content": (
-                        "Du bist ein hilfreicher Bibel-Assistent.\n"
+                        (
+                            f"AUFTRAG (gilt für das gesamte Gespräch, niemals vergessen):\n{current_task}\n\n"
+                            if current_task else ""
+                        )
+                        + "Du bist ein hilfreicher Bibel-Assistent.\n"
                         "Beantworte Fragen auf Deutsch basierend auf der Bibel.\n"
                         "Gib immer die genaue Bibelstelle an (z.B. Johannes 3:16).\n"
                         "Sei freundlich und verständlich.\n\n"
