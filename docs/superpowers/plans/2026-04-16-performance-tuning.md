@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Reduce Mac fan activity by separating the summary model (`gemma3:4b`), adding a cooldown delay between answer and summary, and capping Ollama context/output via `num_ctx`/`num_predict`.
+**Goal:** Reduce Mac fan activity by separating the summary model (`gemma3:4b`), adding a cooldown delay between answer and summary, capping Ollama context/output via `num_ctx`/`num_predict`, and adding an automated every-2-hours backup of chat data from Supabase Cloud to local JSON files.
 
-**Architecture:** All changes are in `backend/main.py` — four new environment-variable constants, `options` dict added to both `ollama.chat()` calls, `SUMMARY_MODEL` used instead of `CHAT_MODEL` in `_maybe_summarize`, and `time.sleep(SUMMARY_DELAY)` added to `save_and_maybe_summarize` before the summary call.
+**Architecture:** Performance changes are in `backend/main.py`. Backup is a standalone `backend/backup.py` script using the existing Supabase client, writing timestamped JSON to `backups/`, triggered by a Mac crontab entry.
 
-**Tech Stack:** Python, FastAPI, Ollama Python SDK (`ollama.chat` accepts `model`, `messages`, `stream`, `options`), pytest + pytest-mock.
+**Tech Stack:** Python, FastAPI, Ollama Python SDK (`ollama.chat` accepts `model`, `messages`, `stream`, `options`), pytest + pytest-mock, Supabase Python client, Mac `crontab`.
 
 ---
 
@@ -16,6 +16,8 @@
 |------|--------|
 | `backend/main.py` | Add 4 constants, `import time` at top, `options` to both chat calls, `SUMMARY_MODEL` in `_maybe_summarize`, `time.sleep` in `save_and_maybe_summarize` |
 | `backend/tests/test_endpoints.py` | Set `SUMMARY_DELAY=0` env default, add 3 new tests: options in chat, SUMMARY_MODEL in summary, sleep before summary |
+| `backend/backup.py` | Standalone backup script: export `chat_sessions` + `chat_messages` to `backups/YYYY-MM-DD_HH-MM-SS.json`, prune old files |
+| `backend/tests/test_backup.py` | Unit tests for backup script |
 
 ---
 
@@ -539,9 +541,242 @@ git commit -m "chore: document new performance tuning env vars in .env"
 
 ---
 
+---
+
+### Task 7: Create `backend/backup.py`
+
+Standalone script that exports `chat_sessions` and `chat_messages` to a timestamped JSON file in `backups/`. Keeps only the last 48 files (= 4 days at 2h intervals).
+
+**Files:**
+- Create: `backend/backup.py`
+- Create: `backend/tests/test_backup.py`
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `backend/tests/test_backup.py`:
+
+```python
+# backend/tests/test_backup.py
+import os
+import json
+import pytest
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
+os.environ.setdefault("SUPABASE_KEY", "test-key")
+
+
+def make_mock_db(sessions, messages):
+    db = MagicMock()
+    db.table.return_value.select.return_value.execute.side_effect = [
+        MagicMock(data=sessions),
+        MagicMock(data=messages),
+    ]
+    return db
+
+
+def test_backup_creates_json_file(tmp_path):
+    from backup import run_backup
+
+    sessions = [{"id": "abc", "summary": None, "created_at": "2026-04-16T10:00:00Z"}]
+    messages = [{"session_id": "abc", "role": "user", "content": "Hallo", "created_at": "2026-04-16T10:00:01Z"}]
+    mock_db = make_mock_db(sessions, messages)
+
+    with patch("backup.get_supabase", return_value=mock_db):
+        run_backup(backup_dir=tmp_path)
+
+    files = list(tmp_path.glob("*.json"))
+    assert len(files) == 1
+    data = json.loads(files[0].read_text())
+    assert data["chat_sessions"] == sessions
+    assert data["chat_messages"] == messages
+
+
+def test_backup_prunes_old_files(tmp_path):
+    from backup import run_backup
+
+    # Create 50 dummy backup files
+    for i in range(50):
+        (tmp_path / f"2026-04-15_0{i:02d}-00-00.json").write_text("{}")
+
+    mock_db = make_mock_db([], [])
+    with patch("backup.get_supabase", return_value=mock_db):
+        run_backup(backup_dir=tmp_path, keep=48)
+
+    # After run: 48 old + 1 new = 49, then pruned to keep=48
+    assert len(list(tmp_path.glob("*.json"))) == 48
+
+
+def test_backup_filename_contains_timestamp(tmp_path):
+    from backup import run_backup
+
+    mock_db = make_mock_db([], [])
+    with patch("backup.get_supabase", return_value=mock_db):
+        run_backup(backup_dir=tmp_path)
+
+    files = list(tmp_path.glob("*.json"))
+    assert len(files) == 1
+    # Filename format: YYYY-MM-DD_HH-MM-SS.json
+    import re
+    assert re.match(r"\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.json", files[0].name)
+```
+
+- [ ] **Step 2: Run the tests to confirm they fail**
+
+```bash
+cd backend && source venv/bin/activate
+pytest tests/test_backup.py -v
+```
+
+Expected: `ModuleNotFoundError: No module named 'backup'`
+
+- [ ] **Step 3: Implement `backend/backup.py`**
+
+Create `backend/backup.py`:
+
+```python
+import json
+import os
+import sys
+from datetime import datetime
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Import get_supabase from the sibling module
+sys.path.insert(0, str(Path(__file__).parent))
+from database import get_supabase
+
+DEFAULT_BACKUP_DIR = Path(__file__).parent.parent / "backups"
+DEFAULT_KEEP = 48  # 4 days at 2-hour intervals
+
+
+def run_backup(backup_dir: Path = DEFAULT_BACKUP_DIR, keep: int = DEFAULT_KEEP) -> Path:
+    """Export chat_sessions and chat_messages to a timestamped JSON file.
+
+    Returns the path of the written backup file.
+    Prunes oldest files so at most `keep` backups remain after writing.
+    """
+    backup_dir = Path(backup_dir)
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    db = get_supabase()
+
+    sessions = db.table("chat_sessions").select("*").execute().data
+    messages = db.table("chat_messages").select("*").execute().data
+
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    backup_file = backup_dir / f"{timestamp}.json"
+    backup_file.write_text(
+        json.dumps({"chat_sessions": sessions, "chat_messages": messages}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    # Prune oldest files
+    all_files = sorted(backup_dir.glob("*.json"))
+    for old_file in all_files[:-keep]:
+        old_file.unlink()
+
+    return backup_file
+
+
+if __name__ == "__main__":
+    written = run_backup()
+    print(f"Backup gespeichert: {written}")
+```
+
+- [ ] **Step 4: Run the tests to confirm they pass**
+
+```bash
+pytest tests/test_backup.py -v
+```
+
+Expected: all 3 tests `PASSED`
+
+- [ ] **Step 5: Run all tests**
+
+```bash
+pytest tests/ -v
+```
+
+Expected: all tests `PASSED`
+
+- [ ] **Step 6: Add `backups/` to `.gitignore`**
+
+Open `.gitignore` (or create it in the project root if missing) and add:
+
+```
+backups/
+```
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add backend/backup.py backend/tests/test_backup.py .gitignore
+git commit -m "feat: add backup.py to export chat data from Supabase every 2h"
+```
+
+---
+
+### Task 8: Set up Mac crontab for automatic backups
+
+**Files:** None (crontab is user-level, not tracked in git)
+
+- [ ] **Step 1: Find the absolute paths needed**
+
+```bash
+which python  # while venv is active — e.g. /Users/yanisdangeli/Documents/bibel/backend/venv/bin/python
+pwd           # run from project root — e.g. /Users/yanisdangeli/Documents/bibel
+```
+
+Note both paths for the next step.
+
+- [ ] **Step 2: Open the crontab editor**
+
+```bash
+crontab -e
+```
+
+This opens in `vi`. Press `i` to insert, add the line below, then press `Esc`, type `:wq`, press Enter.
+
+```cron
+0 */2 * * * cd /Users/yanisdangeli/Documents/bibel/backend && /Users/yanisdangeli/Documents/bibel/backend/venv/bin/python backup.py >> /Users/yanisdangeli/Documents/bibel/backups/backup.log 2>&1
+```
+
+Replace the paths with the actual ones from Step 1.
+
+This runs `backup.py` every 2 hours on the hour (00:00, 02:00, 04:00, …).
+
+- [ ] **Step 3: Verify crontab was saved**
+
+```bash
+crontab -l
+```
+
+Expected: the line above appears in the output.
+
+- [ ] **Step 4: Test the backup manually**
+
+```bash
+cd backend && source venv/bin/activate && python backup.py
+```
+
+Expected output: `Backup gespeichert: /Users/yanisdangeli/Documents/bibel/backups/2026-04-16_HH-MM-SS.json`
+
+Check that the file exists and contains data:
+
+```bash
+ls -lh ../backups/
+```
+
+---
+
 ## Verification
 
-After all tasks are complete, run the full test suite and do a manual smoke test:
+After all tasks are complete, run the full test suite:
 
 ```bash
 cd backend && source venv/bin/activate
@@ -552,4 +787,5 @@ Expected: all tests green.
 
 Then start the backend and send a question via the frontend. Verify:
 1. Answer streams normally
-2. The Mac fan is quieter during summarization (noticeable after ~10 messages in a session when summary triggers)
+2. The Mac fan is quieter during summarization (noticeable after ~10 messages in a session)
+3. `backups/` directory is created and populated by cron every 2 hours
