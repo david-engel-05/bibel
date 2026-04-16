@@ -29,7 +29,8 @@ SUMMARY_SYSTEM_PROMPT = (
     "- Diskutierte Bibelstellen und -themen (mit genauen Versen, z.B. Johannes 3:16)\n"
     "- Wichtige Schlüsse und Erkenntnisse aus dem Gespräch\n"
     "- Offene Fragen oder Themen, auf die man zurückkommen wollte\n"
-    "Halte die Zusammenfassung kompakt (maximal 300 Wörter)."
+    "- Wenn der nutzer eine aufgebe gegeben hat, fasse diese bitte auch in der Zusammenfassung mit auf. stelle es an den anfang der Zusammenfassung\n"
+    "Halte die Zusammenfassung kompakt (maximal 400 Wörter)."
 )
 
 
@@ -38,14 +39,18 @@ class AskRequest(BaseModel):
     session_id: str
 
 
+class TaskRequest(BaseModel):
+    task: str
+
+
 app = FastAPI()
 
 
 def _get_session(session_id: str, db: Client) -> dict:
-    """Returns session row (id, summary, summary_upto_count) or raises 404."""
+    """Returns session row (id, summary, summary_upto_count, task) or raises 404."""
     result = (
         db.table("chat_sessions")
-        .select("id, summary, summary_upto_count")
+        .select("id, summary, summary_upto_count, task")
         .eq("id", session_id)
         .execute()
     )
@@ -127,6 +132,7 @@ def _maybe_summarize(
             messages=[
                 {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
                 *[{"role": m["role"], "content": m["content"]} for m in to_summarize],
+                {"role": "user", "content": "Bitte erstelle jetzt die Zusammenfassung des obigen Gesprächs."},
             ],
             stream=False,
             options={"num_ctx": CHAT_NUM_CTX, "num_predict": CHAT_NUM_PREDICT},
@@ -151,6 +157,21 @@ app.add_middleware(
 def create_session(db: Client = Depends(get_supabase)):
     result = db.table("chat_sessions").insert({}).execute()
     return {"session_id": result.data[0]["id"]}
+
+
+@app.get("/session/{session_id}")
+def get_session_info(session_id: str, db: Client = Depends(get_supabase)):
+    session = _get_session(session_id, db)
+    return {"task": session.get("task")}
+
+
+@app.patch("/session/{session_id}/task")
+def update_task(session_id: str, body: TaskRequest, db: Client = Depends(get_supabase)):
+    _get_session(session_id, db)
+    db.table("chat_sessions").update(
+        {"task": body.task or None}
+    ).eq("id", session_id).execute()
+    return {"ok": True}
 
 
 @app.get("/history/{session_id}")
@@ -232,6 +253,7 @@ def ask(req: AskRequest, db: Client = Depends(get_supabase)):
                 {"role": "user", "content": req.question},
             ],
             stream=True,
+            think=False,
             options={"num_ctx": CHAT_NUM_CTX, "num_predict": CHAT_NUM_PREDICT},
         ):
             token = chunk.message.content

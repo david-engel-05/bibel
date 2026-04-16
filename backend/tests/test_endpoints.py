@@ -631,3 +631,134 @@ def test_ask_background_sleeps_before_summarize(mocker):
 
     sleep_mock.assert_called_once_with(SUMMARY_DELAY)
     app.dependency_overrides.clear()
+
+
+# --- GET /session/{session_id} ---
+
+def test_get_session_info_returns_task():
+    mock_db = make_mock_db()
+    mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[{"id": "test-session", "summary": None, "summary_upto_count": 0, "task": "Errate mein Geschlecht"}]
+    )
+
+    import os
+    os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
+    os.environ.setdefault("SUPABASE_KEY", "test-key")
+
+    from main import app, get_supabase
+    app.dependency_overrides[get_supabase] = lambda: mock_db
+    client = TestClient(app)
+
+    response = client.get("/session/test-session")
+
+    assert response.status_code == 200
+    assert response.json() == {"task": "Errate mein Geschlecht"}
+    app.dependency_overrides.clear()
+
+
+def test_get_session_info_returns_null_task_when_none():
+    mock_db = make_mock_db()
+    mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[{"id": "test-session", "summary": None, "summary_upto_count": 0, "task": None}]
+    )
+
+    import os
+    os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
+    os.environ.setdefault("SUPABASE_KEY", "test-key")
+
+    from main import app, get_supabase
+    app.dependency_overrides[get_supabase] = lambda: mock_db
+    client = TestClient(app)
+
+    response = client.get("/session/test-session")
+
+    assert response.status_code == 200
+    assert response.json() == {"task": None}
+    app.dependency_overrides.clear()
+
+
+def test_get_session_info_returns_404_for_unknown_session():
+    mock_db = make_mock_db()
+    mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[]
+    )
+
+    import os
+    os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
+    os.environ.setdefault("SUPABASE_KEY", "test-key")
+
+    from main import app, get_supabase
+    app.dependency_overrides[get_supabase] = lambda: mock_db
+    client = TestClient(app)
+
+    response = client.get("/session/00000000-0000-0000-0000-000000000000")
+
+    assert response.status_code == 404
+    app.dependency_overrides.clear()
+
+
+# --- PATCH /session/{session_id}/task ---
+
+def test_patch_task_saves_task():
+    mock_db = make_mock_db()
+    mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[{"id": "test-session", "summary": None, "summary_upto_count": 0, "task": None}]
+    )
+
+    import os
+    os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
+    os.environ.setdefault("SUPABASE_KEY", "test-key")
+
+    from main import app, get_supabase
+    app.dependency_overrides[get_supabase] = lambda: mock_db
+    client = TestClient(app)
+
+    response = client.patch("/session/test-session/task", json={"task": "Mein Auftrag"})
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    update_call = mock_db.table.return_value.update.call_args
+    assert update_call[0][0] == {"task": "Mein Auftrag"}
+    app.dependency_overrides.clear()
+
+
+def test_patch_task_saves_none_for_empty_string():
+    mock_db = make_mock_db()
+    mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[{"id": "test-session", "summary": None, "summary_upto_count": 0, "task": "Alter Auftrag"}]
+    )
+
+    import os
+    os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
+    os.environ.setdefault("SUPABASE_KEY", "test-key")
+
+    from main import app, get_supabase
+    app.dependency_overrides[get_supabase] = lambda: mock_db
+    client = TestClient(app)
+
+    response = client.patch("/session/test-session/task", json={"task": ""})
+
+    assert response.status_code == 200
+    update_call = mock_db.table.return_value.update.call_args
+    assert update_call[0][0] == {"task": None}
+    app.dependency_overrides.clear()
+
+
+def test_patch_task_returns_404_for_unknown_session():
+    mock_db = make_mock_db()
+    mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[]
+    )
+
+    import os
+    os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
+    os.environ.setdefault("SUPABASE_KEY", "test-key")
+
+    from main import app, get_supabase
+    app.dependency_overrides[get_supabase] = lambda: mock_db
+    client = TestClient(app)
+
+    response = client.patch("/session/00000000-0000-0000-0000-000000000000/task", json={"task": "Test"})
+
+    assert response.status_code == 404
+    app.dependency_overrides.clear()
