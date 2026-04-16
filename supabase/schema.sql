@@ -19,7 +19,8 @@ create table if not exists chat_sessions (
   id                  uuid primary key default gen_random_uuid(),
   created_at          timestamptz default now(),
   summary             text,
-  summary_upto_count  int not null default 0
+  summary_upto_count  int not null default 0,
+  task                text
 );
 
 -- Gesprächsnachrichten
